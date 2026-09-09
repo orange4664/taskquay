@@ -83,7 +83,9 @@ The host remains the orchestrator. TaskQuay is not an opaque autonomous manager,
 
 ### Track tasks and token usage in the local project console
 
-![The local project console showing task status, acceptance results, and Codex token usage](docs/assets/console截图.png)
+![The project console showing task status, acceptance results, and Codex token usage with isolated demo data](docs/assets/console-tasks.png)
+
+The console uses a neutral light palette, locally served fonts and brief transitions. Task rows adapt to narrow screens while folder and session registration stay in the same panel.
 
 ## Run from this source tree
 

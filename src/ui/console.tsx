@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { FolderPlus, Download, RefreshCw } from "lucide";
+import { FolderPlus, Download, RefreshCw, Layers2, LogOut, X, ListTodo, MessagesSquare, ChartNoAxesColumn, CircleAlert, Folder, Archive, ArchiveRestore, ShieldCheck, ChevronRight, LockKeyhole } from "lucide";
 import { Modal, ConsoleIcon } from "./console-modal.js";
 import { FolderRegistration, SessionRegistration, ImportedSessions } from "./console-registration-ui.js";
 import type { ImportedSession } from "../console-registration-types.js";
+import "@fontsource-variable/geist";
 import "./console.css";
 import "./console-registration.css";
 
@@ -53,6 +54,7 @@ function ConsoleApp() {
   const [csrf, setCsrf] = useState<string | null>(null);
   const [boot, setBoot] = useState(true); const [password, setPassword] = useState("");
   const [error, setError] = useState(""); const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState(new URLSearchParams(location.search).get("project") ?? "");
   const [tab, setTab] = useState("tasks"); const [source, setSource] = useState(""); const [status, setStatus] = useState(""); const [range, setRange] = useState("all");
@@ -128,44 +130,45 @@ function ConsoleApp() {
     await refresh();
   });
 
-  if (boot) return <main className="boot" aria-busy="true">正在连接 DevSpace…</main>;
+  if (boot) return <main className="boot" aria-busy="true"><ConsoleIcon icon={Layers2} /><span>正在连接 TaskQuay…</span></main>;
   if (!csrf) return <main className="login-page"><section className="login-card">
-    <div className="brand-mark">D<span>›</span></div><p className="eyebrow">DEVSPACE / PROJECT CONSOLE</p><h1>项目任务台</h1>
-    <p className="lead">任务从哪里来，进展到哪里，<br />Codex 用了多少——一处看清。</p>
+    <div className="brand-mark"><ConsoleIcon icon={Layers2} /></div><h1>TaskQuay</h1>
+    <p className="lead">登录项目任务台</p>
     <form onSubmit={(event) => { event.preventDefault(); void act(async () => { const result = await api("login", { password }); setPassword(""); setCsrf(result.csrf); setLocalRegistration(result.localRegistration === true); }); }}>
-      <label htmlFor="owner-password">DevSpace 授权口令</label><input id="owner-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required maxLength={2048} />
-      {error && <p className="notice error" role="alert">{error}</p>}<button className="primary" disabled={busy}>{busy ? "正在验证…" : "进入任务台"}</button>
-    </form><p className="privacy-note">使用现有 DevSpace owner token 登录。口令不会写入网址或浏览器本地存储。浏览、统计和归档本身不调用 Codex 推理。</p>
-  </section><div className="login-caption">本机执行 · 来源可追溯 · 验收有依据</div></main>;
+      <label htmlFor="owner-password">授权口令</label><input id="owner-password" aria-label="DevSpace 授权口令" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required maxLength={2048} />
+      {error && <p className="notice error" role="alert">{error}</p>}<button className="primary" disabled={busy}>{busy ? "正在验证…" : "进入任务台"}<ConsoleIcon icon={ChevronRight} /></button>
+    </form>
+  </section><div className="login-caption"><ConsoleIcon icon={LockKeyhole} />本机管理访问</div></main>;
 
   return <div className="console-shell">
-    <aside className="sidebar"><a className="brand" href="/console/"><span className="brand-mark small">D<span>›</span></span><span>DevSpace<small>项目任务台</small></span></a>
+    <aside className="sidebar"><a className="brand" href="/console/"><span className="brand-mark small"><ConsoleIcon icon={Layers2} /></span><span>TaskQuay<small>项目任务台</small></span></a>
       <div className="sidebar-heading">项目 <span>{projects.length}</span></div>
       {localRegistration && <button className="add-project" onClick={() => setFolderDialog(true)} disabled={busy}><ConsoleIcon icon={FolderPlus} />添加文件夹</button>}
-      <nav aria-label="项目选择">{projects.map((entry) => <button key={entry.id} className={`project-button ${entry.id === projectId ? "selected" : ""}`} onClick={() => setProjectId(entry.id)} disabled={busy}>
-        <span className="project-initial">{entry.name.slice(0, 1).toUpperCase()}</span><span>{entry.name}<small>{entry.taskCount} 项任务 · {entry.activeTasks} 项进行中</small></span>{entry.activeTasks > 0 && <i className="live-dot" />}
+      <nav aria-label="项目选择">{projects.map((entry) => <button key={entry.id} className={`project-button ${entry.id === projectId ? "selected" : ""}`} aria-current={entry.id === projectId ? "page" : undefined} onClick={() => setProjectId(entry.id)} disabled={busy}>
+        <ConsoleIcon icon={Folder} /><span className="project-name">{entry.name}<small>{entry.taskCount} 项任务 · {entry.activeTasks} 项进行中</small></span>{entry.activeTasks > 0 && <i className="live-dot" />}
       </button>)}</nav>
-      <div className="sidebar-bottom"><span className="online-dot" /> 已认证的管理会话<p>仅展示 DevSpace 登记的任务。<br />未纳管聊天不会自动收集。</p><button onClick={() => void act(async () => { await api("logout", {}); setCsrf(null); })}>退出登录</button></div>
+      <div className="sidebar-bottom"><span className="online-dot" /> 管理会话已连接</div>
     </aside>
-    <main className="main-content"><header className="page-header"><div><p className="eyebrow">WORK, WITH A RECORD</p><h1>{project?.name ?? "项目任务台"}</h1><p className="path" title={project?.root}>{project?.root ?? "打开工作区并开始任务后，这里会出现项目。"}</p></div>
-      <div className="header-actions"><span className="updated">{updated ? `${date(updated)} 更新` : "读取中"}</span><button className="icon-command" aria-label="刷新" title="刷新" onClick={() => void refresh()} disabled={busy}><ConsoleIcon icon={RefreshCw} /></button><button onClick={() => void act(async () => { await api("logout", {}); setCsrf(null); })} disabled={busy}>退出</button></div></header>
-      {error && <div role="alert" className="notice error">{error}<button onClick={() => setError("")}>关闭</button></div>}
-      {message && <div role="status" className="notice success">{message}<button onClick={() => setMessage("")}>关闭</button></div>}
-      {!project ? <section className="empty big"><h2>还没有登记的项目</h2>{localRegistration && <button className="primary" onClick={() => setFolderDialog(true)}><ConsoleIcon icon={FolderPlus} />添加文件夹</button>}</section> : <>
+    <main className="main-content"><header className="page-header"><div><p className="eyebrow">项目工作区</p><h1>{project?.name ?? "项目任务台"}</h1>{project && <p className="path" title={project.root}>{project.root}</p>}</div>
+      <div className="header-actions"><span className="updated">{updated ? `${date(updated)} 更新` : "读取中"}</span><button className={`icon-command ${refreshing ? "is-refreshing" : ""}`} aria-label="刷新" title="刷新" onClick={() => { setRefreshing(true); void refresh().finally(() => setRefreshing(false)); }} disabled={busy || refreshing}><ConsoleIcon icon={RefreshCw} /></button><button className="icon-command" aria-label="退出登录" title="退出登录" onClick={() => void act(async () => { await api("logout", {}); setCsrf(null); })} disabled={busy}><ConsoleIcon icon={LogOut} /></button></div></header>
+      {error && <div role="alert" className="notice error"><span>{error}</span><button className="icon-command" aria-label="关闭提示" title="关闭提示" onClick={() => setError("")}><ConsoleIcon icon={X} /></button></div>}
+      {message && <div role="status" className="notice success"><span>{message}</span><button className="icon-command" aria-label="关闭提示" title="关闭提示" onClick={() => setMessage("")}><ConsoleIcon icon={X} /></button></div>}
+      {!project ? <section className="empty big"><ConsoleIcon icon={FolderPlus} /><h2>还没有登记的项目</h2>{localRegistration && <button className="primary" onClick={() => setFolderDialog(true)}><ConsoleIcon icon={FolderPlus} />添加文件夹</button>}</section> : <>
       <section className="metric-grid" aria-label="项目统计"><article className="metric accent"><span>已记录的 Codex 消耗</span>{stats ? <TokenValue usage={stats} /> : <strong>—</strong>}<small>按任务开始时间统计 · 不等于订阅账单</small></article>
-        <article className="metric"><span>进行中的任务</span><strong>{stats?.activeTasks ?? 0}<small> / {stats?.taskCount ?? 0}</small></strong><small>执行状态与验收结果分别记录</small></article>
-        <article className="metric"><span>等待验收</span><strong>{stats?.pendingAcceptance ?? 0}</strong><small>模型回复结束，不代表验收通过</small></article>
-        <article className="metric"><span>需要关注</span><strong>{stats?.needsAttention ?? 0}</strong><small>失败、历史缺口或待核对状态</small></article></section>
-      <nav className="tabs" aria-label="项目页面">{[["tasks", "任务"], ["sessions", "Codex 会话"], ["usage", "用量"], ["attention", "需处理项"]].map(([value, text]) =>
-        <button key={value} className={tab === value ? "active" : ""} onClick={() => setTab(value)} disabled={busy} aria-current={tab === value ? "page" : undefined}>{text}</button>)}</nav>
+        <article className="metric"><span>进行中的任务</span><strong>{stats?.activeTasks ?? 0}<small> / {stats?.taskCount ?? 0}</small></strong><small>全部 {stats?.taskCount ?? 0} 项任务</small></article>
+        <article className="metric"><span>等待验收</span><strong>{stats?.pendingAcceptance ?? 0}</strong><small>待确认执行结果</small></article>
+        <article className="metric"><span>需要关注</span><strong>{stats?.needsAttention ?? 0}</strong><small>失败或待核对</small></article></section>
+      <nav className="tabs" aria-label="项目页面">{[{ value: "tasks", text: "任务", icon: ListTodo }, { value: "sessions", text: "Codex 会话", icon: MessagesSquare }, { value: "usage", text: "用量", icon: ChartNoAxesColumn }, { value: "attention", text: "需处理项", icon: CircleAlert }].map(({ value, text, icon }) =>
+        <button key={value} className={tab === value ? "active" : ""} onClick={() => setTab(value)} disabled={busy} aria-current={tab === value ? "page" : undefined}><ConsoleIcon icon={icon} />{text}</button>)}</nav>
+      <div className="view-content" key={`${projectId}:${tab}`}>
       {(tab === "tasks" || tab === "usage") && <>
         <div className="toolbar"><div className="filters"><label>来源<select value={source} onChange={(event) => setSource(event.target.value)}><option value="">全部来源</option>{Object.entries(sourceLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>
           <label>状态<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option>{["running", "completed", "failed", "cancelled", "reconciliation_required"].map((value) => <option key={value} value={value}>{label(value)}</option>)}</select></label>
           <label>开始时间<select value={range} onChange={(event) => setRange(event.target.value)}><option value="all">全部时间</option><option value="7">近 7 天</option><option value="30">近 30 天</option></select></label></div><span className="subtle">缓存与推理明细不重复计入总量</span></div>
         {tab === "usage" && <section className="usage-explainer"><h2>看总消耗，也看统计边界</h2><p>完整：受管执行与用量边界齐全。部分：有已记录值，但仍有缺口。未知：没有足够证据，不能写成零。未调用：确认没有发起 Codex 推理。</p>
           <dl><div><dt>输入</dt><dd>{n(stats?.codexUsage?.inputTokens)}</dd></div><div><dt>其中缓存读取</dt><dd>{n(stats?.codexUsage?.cachedInputTokens)}</dd></div><div><dt>输出</dt><dd>{n(stats?.codexUsage?.outputTokens)}</dd></div><div><dt>缺少完整用量的执行</dt><dd>{n(stats?.missingExecutions)}</dd></div></dl></section>}
-        <section className="table-panel"><div className="panel-title"><h2>{tab === "usage" ? "逐任务用量" : "项目任务"}</h2><span>一项需求一份回执</span></div>
-          {!runs.length ? <div className="empty"><h3>没有符合条件的任务</h3><p>调整筛选条件，或开始一项新的工作。</p></div> : <div className="table-scroll"><table><thead><tr><th>任务 / 来源</th><th>执行与验收</th><th>Codex Token</th><th>会话</th><th>开始时间</th></tr></thead><tbody>{runs.map((run) => <tr key={run.workRunId}>
+        <section className="table-panel"><div className="panel-title"><h2>{tab === "usage" ? "逐任务用量" : "项目任务"}</h2><span>{runs.length} 项{offset !== null ? "已加载" : ""}</span></div>
+          {!runs.length ? <div className="empty"><h3>没有符合条件的任务</h3><p>调整筛选条件，或开始一项新的工作。</p></div> : <div className="table-scroll"><table className="tasks-table"><thead><tr><th>任务 / 来源</th><th>执行与验收</th><th>Codex Token</th><th>会话</th><th>开始时间</th></tr></thead><tbody>{runs.map((run) => <tr key={run.workRunId}>
             <td><button className="task-title" onClick={() => void openDetail(run.workRunId)}>{run.title}</button><div className="source-line">{sourceLabels[run.origin.entryPoint] ?? run.origin.entryPoint}{run.origin.modelLabel && <span> · {run.origin.modelLabel}（标签）</span>}</div></td>
             <td><div className="state-stack"><Badge value={run.executionStatus} /><Badge value={run.acceptanceStatus} /></div></td><td><TokenValue usage={run} compact /></td><td>{run.codexThreads}</td><td className="date">{date(run.createdAt)}</td></tr>)}</tbody></table></div>}
           {offset !== null && <button className="load-more" disabled={busy} onClick={() => void act(async () => { const params = query(); params.set("offset", String(offset)); const more = await api(`projects/${projectId}/runs?${params}`); setRuns((current) => [...current, ...more.entries]); setOffset(more.nextOffset); })}>加载更多</button>}
@@ -175,9 +178,9 @@ function ConsoleApp() {
         <ImportedSessions entries={imports} busy={busy} canManage={localRegistration} remove={(id) => void act(async () => {
           await api(`projects/${encodeURIComponent(projectId)}/session-imports/${encodeURIComponent(id)}/remove`, {}); setMessage("已移除登记，原会话保持不变。"); await refresh();
         })} />
-        <div className="session-note"><span>◇</span><div><strong>只整理能证明归属的会话</strong><p>Codex 归档会隐藏原聊天，不删除任务或 Token 历史；它也不会取消进程。存在外部续写或未验收任务时，默认跳过。</p></div></div>
-        <div className="toolbar session-toolbar"><label className="check-label"><input type="checkbox" checked={acceptPartial} onChange={(event) => setAcceptPartial(event.target.checked)} />预览时允许保留不完整用量回执</label><div className="button-row"><button onClick={() => void preview("restore")} disabled={busy}>恢复已归档会话</button><button className="primary" onClick={() => void preview("archive")} disabled={busy}>{selection.size ? `预览归档 ${selection.size} 个会话` : "预览项目归档"}</button></div></div>
-        <section className="table-panel"><div className="panel-title"><h2>受管 Codex 会话</h2><span>{threads.length} 个 · 来源登记，不靠标题猜测</span></div>{!threads.length ? <div className="empty"><h3>没有受管 Codex 会话</h3><p>主控直接读取不创建 Codex 聊天。</p></div> : <div className="table-scroll"><table><thead><tr><th><span className="sr-only">选择</span></th><th>会话 / 归属</th><th>来源可信度</th><th>归档状态</th><th>保留</th></tr></thead><tbody>{threads.map((thread) => <tr key={thread.id}>
+        <div className="session-note"><ConsoleIcon icon={ShieldCheck} /><div><strong>受管会话归档</strong><p>归档隐藏原聊天，保留任务与用量，不停止进程。外部续写、未验收或归属不明的会话将跳过。</p></div></div>
+        <div className="toolbar session-toolbar"><label className="check-label"><input type="checkbox" checked={acceptPartial} onChange={(event) => setAcceptPartial(event.target.checked)} />预览时允许保留不完整用量回执</label><div className="button-row"><button onClick={() => void preview("restore")} disabled={busy}><ConsoleIcon icon={ArchiveRestore} />恢复已归档会话</button><button onClick={() => void preview("archive")} disabled={busy}><ConsoleIcon icon={Archive} />{selection.size ? `预览归档 ${selection.size} 个会话` : "预览项目归档"}</button></div></div>
+        <section className="table-panel"><div className="panel-title"><h2>受管 Codex 会话</h2><span>{threads.length} 个</span></div>{!threads.length ? <div className="empty"><ConsoleIcon icon={MessagesSquare} /><h3>没有受管 Codex 会话</h3></div> : <div className="table-scroll"><table><thead><tr><th><span className="sr-only">选择</span></th><th>会话 / 归属</th><th>来源可信度</th><th>归档状态</th><th>保留</th></tr></thead><tbody>{threads.map((thread) => <tr key={thread.id}>
           <td><input type="checkbox" aria-label={`选择 ${thread.title}`} checked={selection.has(thread.id)} onChange={(event) => setSelection((current) => { const next = new Set(current); event.target.checked ? next.add(thread.id) : next.delete(thread.id); return next; })} /></td>
           <td><strong className="thread-title">{thread.title}</strong><div className="source-line">{sourceLabels[thread.origin.entryPoint] ?? "来源待确认"} · {thread.runs.length} 个工作执行</div><code>{thread.agentId}</code></td>
           <td>{thread.externalActivity ? <Badge value="reconciliation_required">外部续写</Badge> : <Badge value={thread.createdHere && thread.identityVerified ? "passed" : "pending"}>{thread.createdHere && thread.identityVerified ? "已登记创建" : "关联待核实"}</Badge>}</td>
@@ -186,8 +189,8 @@ function ConsoleApp() {
       </>}
       {tab === "attention" && <section className="table-panel"><div className="panel-title"><h2>执行占用与等待</h2><span>只展示证据，不自动杀进程</span></div><div className="attention-content"><p>进程存在、模型线程空闲、任务完成是不同状态。中断遗留占用需要核对，不能通过归档聊天来“清理”。</p>
         {!attention.claims.length && !attention.waiters.length ? <div className="empty"><h3>当前没有登记的占用或等待</h3><p>这不等于已扫描并确认所有外部 Codex 客户端都已停止。</p></div> : [...attention.claims, ...attention.waiters].map((entry) => <div className="claim" key={entry.id}><strong>{entry.kind ?? "queued"}</strong><code>{entry.agent_id ?? entry.id}</code><span>{entry.access_mode} · {entry.owner_pid ? `PID ${entry.owner_pid}` : "尚未调用模型"}</span></div>)}</div></section>}
-      </>}
-      <footer className="page-footer"><span>DevSpace · 执行与证据层</span><span>页面刷新、统计和归档控制均不启动模型推理</span></footer>
+      </div></>}
+      <footer className="page-footer"><span>TaskQuay</span><span>项目与会话管理</span></footer>
     </main>
     {folderDialog && <FolderRegistration api={api} initialPath={project?.root ?? ""} close={() => setFolderDialog(false)} registered={(id) => {
       setFolderDialog(false); setProjectId(id); setTab("sessions"); setMessage("项目文件夹已登记。"); void refresh();

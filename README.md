@@ -77,7 +77,9 @@ ChatGPT 网页对话 → 已授权的 TaskQuay MCP → 本地工作区 / Coding 
 
 ### 在本地管理页面查看任务与 Token 消耗
 
-![本地项目管理台中的任务状态、验收结果与 Codex Token 用量](docs/assets/console截图.png)
+![简洁任务台中的任务状态、验收结果与 Codex Token 用量，使用隔离演示数据](docs/assets/console-tasks.png)
+
+新版任务台采用浅色中性配色、本地字体和轻量过渡动效。手机上任务按行展开，文件夹及会话登记仍在同一面板中完成。
 
 ## 从源码安装
 

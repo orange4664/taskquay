@@ -50,6 +50,11 @@ Do not label the SDK or a provider's CLI binaries as MIT merely because TaskQuay
 
 ## Assets and brands
 
+The console bundles Geist Variable 5.3.0 via `@fontsource-variable/geist`, under
+SIL OFL-1.1. Copyright 2024 The Geist Project Authors. The complete notice and
+license are included in [docs/licenses/geist-OFL.txt](docs/licenses/geist-OFL.txt).
+Chinese text uses fonts already installed on the user's operating system.
+
 Upstream screenshots, the original DevSpace logo, and provider logos are not a new TaskQuay identity. New README files intentionally do not use upstream promotional badges or screenshots as proof of this fork's releases. Existing assets retain their original provenance; review copyright and trademark permissions before reusing them as marketing materials.
 
 OpenAI, Codex, ChatGPT, Anthropic, Claude, DevSpace, and LINUX DO remain names of their respective owners. References describe compatibility, attribution, or a community link; they do not imply affiliation or endorsement.
