@@ -3,7 +3,11 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { resolve } from "node:path";
 import * as z from "zod/v4";
 import type { ServerConfig } from "./config.js";
-import { assertAllowedPath } from "./roots.js";
+import { assertConsoleAllowedPath } from "./console-paths.js";
+import { ConsoleRegistration } from "./console-registration.js";
+import { importedSessions } from "./console-session-references.js";
+import type { SessionCatalog } from "./codex-session-catalog.js";
+import { RegistrationError } from "./console-registration-error.js";
 import { WorkLedger } from "./work-ledger.js";
 import { ProjectArchive } from "./project-archive.js";
 import { CodexThreadControl, type ThreadControl } from "./codex-thread-control.js";
@@ -13,15 +17,19 @@ const hash = (value: string) => createHash("sha256").update(value).digest();
 const equal = (a: string, b: string) => timingSafeEqual(hash(a), hash(b));
 const loopback = (address: string | undefined) => address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
 const localHost = (hostname: string) => ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname);
+const forwardedRequest = (req: Request) => Object.keys(req.headers).some((name) => name === "forwarded" || name.startsWith("x-forwarded-") || name === "x-real-ip");
+const directLocal = (req: Request) => loopback(req.socket.remoteAddress) && localHost(req.hostname) && !forwardedRequest(req);
 const stringParam = (value: string | string[] | undefined): string => typeof value === "string" ? value : "";
 
 export function createProjectConsoleRouter(config: ServerConfig, options: {
   assetDirectory: string; providerFactory?: () => ThreadControl; clock?: () => number;
+  catalogFactory?: () => SessionCatalog;
 }) {
   const router = express.Router();
   const sessions = new Map<string, Session>();
   const attempts = new Map<string, { count: number; until: number }>();
   const clock = options.clock ?? Date.now;
+  const registration = new ConsoleRegistration(config, { ...options, sessionActive: (owner) => (sessions.get(owner)?.expires ?? 0) > clock() });
   const settings = config.console ?? { enabled: true, allowRemote: false, sessionTtlSeconds: 3600 };
   const cookieName = "devspace_console_session";
   const sessionFor = (req: Request) => {
@@ -35,7 +43,7 @@ export function createProjectConsoleRouter(config: ServerConfig, options: {
     const host = req.headers.host;
     if (!host || /[\s,@\\]/.test(host)) return undefined;
     let url: URL; try { url = new URL(`${req.secure ? "https" : "http"}://${host}`); } catch { return undefined; }
-    const forwarded = req.headers["x-forwarded-for"] || req.headers["x-forwarded-host"] || req.headers.forwarded;
+    const forwarded = forwardedRequest(req);
     if (loopback(req.socket.remoteAddress) && localHost(url.hostname) && !forwarded) return url.origin;
     const publicUrl = new URL(config.publicBaseUrl);
     if (!settings.allowRemote || publicUrl.protocol !== "https:" || !req.secure || url.host !== publicUrl.host) return undefined;
@@ -86,26 +94,68 @@ export function createProjectConsoleRouter(config: ServerConfig, options: {
     const previous = sessionFor(req); if (previous) sessions.delete(previous.key);
     const token = randomBytes(32).toString("hex"); const csrf = randomBytes(24).toString("hex");
     sessions.set(hash(token).toString("hex"), { csrf, expires: clock() + settings.sessionTtlSeconds * 1000 });
-    setCookie(req, res, token, settings.sessionTtlSeconds); res.json({ authenticated: true, csrf });
+    setCookie(req, res, token, settings.sessionTtlSeconds); res.json({ authenticated: true, csrf, localRegistration: directLocal(req) });
   });
-  router.get("/api/session", (_req, res) => res.json({ authenticated: true, csrf: res.locals.consoleSession.session.csrf, remoteEnabled: settings.allowRemote }));
-  router.post("/api/logout", (req, res) => { sessions.delete(res.locals.consoleSession.key); setCookie(req, res, "", 0); res.json({ authenticated: false }); });
+  router.get("/api/session", (req, res) => res.json({ authenticated: true, csrf: res.locals.consoleSession.session.csrf, remoteEnabled: settings.allowRemote, localRegistration: directLocal(req) }));
+  router.post("/api/logout", (req, res) => { registration.forget(res.locals.consoleSession.key); sessions.delete(res.locals.consoleSession.key); setCookie(req, res, "", 0); res.json({ authenticated: false }); });
+
+  const localAction = (action: (req: Request, owner: string) => Promise<unknown>) => async (req: Request, res: Response) => {
+    if (!directLocal(req)) { res.status(403).json({ code: "LOCAL_OWNER_REQUIRED", message: "请在运行 TaskQuay 的电脑上打开本机任务台进行登记。" }); return; }
+    const owner = res.locals.consoleSession.key as string;
+    try { res.json(await registration.run(owner, () => action(req, owner))); }
+    catch (error) {
+      const message = error instanceof z.ZodError ? "输入无效，请检查所选项目和会话。" : error instanceof RegistrationError
+        ? error.message : "无法完成登记。请检查目录权限、Codex 登录和服务状态，再重新预览。";
+      res.status(409).json({ code: "REGISTRATION_REJECTED", message });
+    }
+  };
+  const ticketKey = z.string().regex(/^[a-f0-9]{48}$/);
+  router.post("/api/folders/browse", localAction(async (req, owner) => {
+    const body = z.object({ path: z.string().max(4096).optional() }).strict().parse(req.body);
+    return registration.browseFolders(owner, body.path);
+  }));
+  router.post("/api/folders/preview", localAction(async (req, owner) => {
+    const body = z.object({ path: z.string().min(1).max(4096) }).strict().parse(req.body);
+    return { preview: await registration.previewFolder(owner, body.path) };
+  }));
+  router.post("/api/folders/register", localAction(async (req, owner) => {
+    const body = z.object({ ticket: ticketKey, name: z.string().trim().min(1).max(200).optional(), authorize: z.boolean() }).strict().parse(req.body);
+    return registration.registerFolder(owner, body.ticket, body.name, body.authorize);
+  }));
+  router.post("/api/projects/:projectId/session-catalog", localAction(async (req, owner) => {
+    const body = z.object({ archived: z.boolean(), search: z.string().trim().max(120).default(""), ticket: ticketKey.optional(), cursor: ticketKey.optional() }).strict().parse(req.body);
+    return registration.listSessions(owner, stringParam(req.params.projectId), body);
+  }));
+  router.post("/api/projects/:projectId/session-imports", localAction(async (req, owner) => {
+    const body = z.object({ ticket: ticketKey, threadIds: z.array(z.string().regex(/^[A-Za-z0-9_-]{1,160}$/)).min(1).max(50)
+      .refine((ids) => new Set(ids).size === ids.length) }).strict().parse(req.body);
+    return registration.registerSessions(owner, stringParam(req.params.projectId), body.ticket, body.threadIds);
+  }));
+  router.post("/api/projects/:projectId/session-imports/:referenceId/remove", localAction(async (req, owner) => {
+    z.object({}).strict().parse(req.body);
+    const referenceId = z.string().regex(/^ref_[a-f0-9]{32}$/).parse(req.params.referenceId);
+    return registration.removeSession(owner, stringParam(req.params.projectId), referenceId);
+  }));
 
   const withLedger = (fn: (req: Request, ledger: WorkLedger) => unknown | Promise<unknown>) => async (req: Request, res: Response) => {
     const ledger = new WorkLedger(config.stateDir);
     try {
       const projectId = stringParam(req.params.projectId);
-      if (projectId) assertAllowedPath(ledger.getProject(projectId).root, config.allowedRoots);
+      if (projectId) await assertConsoleAllowedPath(ledger.getProject(projectId).root, config.allowedRoots);
       res.json(await fn(req, ledger));
     } catch { res.status(409).json({ code: "CONSOLE_OPERATION_REJECTED", message: "请求未通过项目、状态或输入校验。刷新后查看任务状态；不会自动重放归档。" }); }
     finally { ledger.close(); }
   };
-  router.get("/api/projects", withLedger((_req, ledger) => {
+  router.get("/api/projects", withLedger(async (_req, ledger) => {
     // Only DevSpace-registered projects; do not scan Codex's private chat catalog on page refresh.
     const roots = ledger.db.prepare("select root from workspace_sessions union select workspace_root as root from local_agent_sessions").all() as { root: string }[];
-    for (const { root } of roots) { try { assertAllowedPath(root, config.allowedRoots); ledger.importLegacy(root); } catch { /* inaccessible history remains undisclosed */ } }
-    return { projects: ledger.projects().filter((project) => { try { assertAllowedPath(project.root, config.allowedRoots); return true; } catch { return false; } })
-      .map((project) => ({ id: project.id, name: project.name, root: project.root, ...ledger.projectUsage(project.id) })) };
+    for (const { root } of roots) { try { await assertConsoleAllowedPath(root, config.allowedRoots); ledger.importLegacy(root); } catch { /* inaccessible history remains undisclosed */ } }
+    const projects = [];
+    for (const project of ledger.projects()) {
+      try { await assertConsoleAllowedPath(project.root, config.allowedRoots); } catch { continue; }
+      projects.push({ id: project.id, name: project.name, root: project.root, ...ledger.projectUsage(project.id) });
+    }
+    return { projects };
   }));
   router.get("/api/projects/:projectId/runs", withLedger((req, ledger) => {
     const query = z.object({ offset: z.coerce.number().int().min(0).max(100000).optional(), source: z.enum(["chatgpt_mcp", "other_mcp", "devspace_cli", "legacy_unknown", "console", ""]).optional(),
@@ -121,7 +171,8 @@ export function createProjectConsoleRouter(config: ServerConfig, options: {
       origin: JSON.parse(thread.origin), identityVerified: Boolean(thread.identity_verified), externalActivity: Boolean(thread.external_activity),
       protected: Boolean(thread.protected), archiveState: thread.archive_state, nameStatus: thread.name_status,
       updatedAt: thread.updated_at, runs: ledger.threadRuns(thread.id).map((run) => ({ id: run.id, status: run.status, acceptance: run.acceptance })) })),
-    catalogScope: "Only DevSpace registrations. Unmanaged chats are not collected or archived by this page." })));
+    imports: importedSessions(ledger, stringParam(req.params.projectId)),
+    catalogScope: "Managed sessions and explicitly imported references only. Imported references cannot be archived by this page." })));
   router.post("/api/projects/:projectId/threads/:threadId/protect", withLedger((req, ledger) => {
     const body = z.object({ protected: z.boolean() }).strict().parse(req.body);
     ledger.protectThread(stringParam(req.params.projectId), stringParam(req.params.threadId), body.protected); return { saved: true };
@@ -152,5 +203,5 @@ export function createProjectConsoleRouter(config: ServerConfig, options: {
     if (!res.headersSent) res.status(400).json({ code: "CONSOLE_REQUEST_REJECTED" });
     void error;
   });
-  return { router, close: () => { sessions.clear(); attempts.clear(); } };
+  return { router, close: () => { registration.close(); sessions.clear(); attempts.clear(); } };
 }

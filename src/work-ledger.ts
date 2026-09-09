@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { basename } from "node:path";
+import { realpathSync } from "node:fs";
+import { canonicalPathIdentity } from "./roots.js";
 import { openDatabase, type DatabaseHandle } from "./db/client.js";
 import { canonicalExecutionRoot, overlaps } from "./execution-coordinator.js";
 import type { AgentUsageObservation, TokenCounts } from "./agent-usage.js";
@@ -89,11 +91,17 @@ export class WorkLedger {
   get db() { return this.database.sqlite; }
 
   project(root: string, name?: string): ProjectRow {
+    return this.saveProject(canonicalExecutionRoot(root), name, basename(root));
+  }
+  /** Explicit GUI registration grants exactly this folder, never its parent checkout. */
+  registerDirectory(root: string, name?: string): ProjectRow {
+    return this.saveProject(canonicalPathIdentity(realpathSync(root)), name);
+  }
+  private saveProject(canonical: string, name?: string, defaultName = basename(canonical)): ProjectRow {
     if (name !== undefined && (!name.trim() || name.length > 200)) throw new Error("Project name must contain 1–200 characters.");
-    const canonical = canonicalExecutionRoot(root);
     const projectId = `prj_${digest(canonical).slice(0, 24)}`;
     this.db.prepare("insert or ignore into console_projects(id, root, name, created_at) values (?,?,?,?)")
-      .run(projectId, canonical, basename(root), now());
+      .run(projectId, canonical, defaultName, now());
     if (name !== undefined) this.db.prepare("update console_projects set name = ? where id = ?").run(name.trim(), projectId);
     return this.getProject(projectId);
   }

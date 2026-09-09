@@ -1,5 +1,7 @@
 import { homedir, hostname } from "node:os";
 import { createHash } from "node:crypto";
+import { realpath } from "node:fs/promises";
+import { canonicalPathIdentity } from "./roots.js";
 import { setTimeout as settle } from "node:timers/promises";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { delimiter, join, resolve } from "node:path";
@@ -85,6 +87,7 @@ export interface CodexAppServerRuntimeOptions {
   command: string;
   env: NodeJS.ProcessEnv;
   version?: string;
+  verifyHome?: boolean;
   registerProject?: (roots: string[], threadIds: string[], env: NodeJS.ProcessEnv) => Promise<ProjectReceipt>;
 }
 
@@ -132,17 +135,24 @@ export class CodexAppServerRuntime implements LocalAgentRuntime {
   }
 
   async initialize(): Promise<void> {
-    await this.rpc.request("initialize", {
+    const initialized = await this.rpc.request("initialize", {
       clientInfo: { name: "devspace", title: "DevSpace", version: DEVSPACE_VERSION },
       capabilities: {},
     });
     this.rpc.notify("initialized");
+    if (this.options.verifyHome) {
+      const actualHome = asRecord(initialized)?.codexHome;
+      const expectedHome = this.options.env.CODEX_HOME ?? join(homedir(), ".codex");
+      if (typeof actualHome !== "string" || canonicalPathIdentity(await realpath(actualHome)) !== canonicalPathIdentity(await realpath(expectedHome))) {
+        throw new Error("Codex reported an unexpected configuration directory.");
+      }
+    }
   }
 
   /** Metadata/lifecycle RPC only. Never exposes arbitrary methods or starts inference. */
-  async control(method: CodexControlMethod, params: unknown): Promise<unknown> {
+  async control(method: CodexControlMethod, params: unknown, timeoutMs?: number): Promise<unknown> {
     if (!CONTROL_METHODS.has(method)) throw new Error("Unsupported Codex lifecycle operation.");
-    return this.rpc.request(method, params);
+    return this.rpc.request(method, params, timeoutMs);
   }
   identity(refresh = false): Promise<{ instanceId: string; identityVerified: boolean }> {
     if (refresh) this.identityPromise = undefined;

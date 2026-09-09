@@ -186,6 +186,13 @@ export const consoleWorkItems = sqliteTable("console_work_items", {
   id: text("id").primaryKey(), projectId: text("project_id").notNull().references(() => consoleProjects.id),
   itemKey: text("item_key").notNull(), title: text("title").notNull(), createdAt: text("created_at").notNull(),
 }, (table) => [uniqueIndex("console_item_identity").on(table.projectId, table.itemKey)]);
+export const consoleThreadReferences = sqliteTable("console_thread_references", {
+  id: text("id").primaryKey(), projectId: text("project_id").notNull().references(() => consoleProjects.id),
+  instanceId: text("instance_id").notNull(), threadId: text("thread_id").notNull(), title: text("title").notNull(),
+  cwd: text("cwd").notNull(), source: text("source").notNull(), status: text("status").notNull(),
+  archived: integer("archived").notNull(), providerUpdatedAt: text("provider_updated_at"), importedAt: text("imported_at").notNull(),
+}, (table) => [uniqueIndex("console_reference_identity").on(table.projectId, table.instanceId, table.threadId),
+  index("console_references_project").on(table.projectId, table.importedAt)]);
 export const consoleWorkRuns = sqliteTable("console_work_runs", {
   id: text("id").primaryKey(), projectId: text("project_id").notNull().references(() => consoleProjects.id),
   itemId: text("item_id").notNull().references(() => consoleWorkItems.id), workspaceId: text("workspace_id"),

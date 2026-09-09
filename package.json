@@ -4,11 +4,11 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wrfgup/taskquay.git"
+    "url": "git+https://github.com/orange4664/taskquay.git"
   },
-  "homepage": "https://github.com/wrfgup/taskquay#readme",
+  "homepage": "https://github.com/orange4664/taskquay#readme",
   "bugs": {
-    "url": "https://github.com/wrfgup/taskquay/issues"
+    "url": "https://github.com/orange4664/taskquay/issues"
   },
   "description": "Expose a secure local coding workspace through an MCP server.",
   "type": "module",
@@ -93,11 +93,6 @@
     "tsx": "^4.22.3",
     "typescript": "^6.0.3",
     "vite": "^8.0.14"
-  },
-  "overrides": {
-    "protobufjs": "7.6.4",
-    "ws": "8.21.0",
-    "undici": "8.5.0"
   },
   "optionalDependencies": {
     "node-pty": "^1.1.0"

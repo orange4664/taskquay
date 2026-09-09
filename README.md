@@ -2,7 +2,9 @@
 
 **让懂你需求的网页 GPT，真正带着本地 Coding Agent 干活。**
 
-[简体中文](README.md) · [English](README.en.md) · [GitHub](https://github.com/wrfgup/taskquay) · [接入教程](docs/chatgpt-mcp-setup.zh-CN.md) · [MIT 许可证](LICENSE)
+[简体中文](README.md) · [English](README.en.md) · [GitHub](https://github.com/orange4664/taskquay) · [接入教程](docs/chatgpt-mcp-setup.zh-CN.md) · [MIT 许可证](LICENSE)
+
+本仓库是 [wrfgup/taskquay](https://github.com/wrfgup/taskquay) 的维护分支，新增本机 GUI 文件夹选择、已有 Codex 会话登记及相关安全修复。在 `/console/` 点击 **添加文件夹**，进入项目的 **Codex 会话 → 登记已有会话** 后自行勾选。详见[登记操作、安全边界与升级说明](docs/local-registration.md)。
 
 [2026-09-08 轨迹复盘：两处有界修复与验证边界](docs/trajectory-review-20260908.md)
 
@@ -82,7 +84,7 @@ ChatGPT 网页对话 → 已授权的 TaskQuay MCP → 本地工作区 / Coding 
 环境以 `package.json` 为准：Node.js `>=22.19 <27`、Git、`pnpm@11.25.0`。使用 Codex 委派时，另行安装并登录兼容的 Codex CLI；Windows 建议准备 Git Bash，并用 `doctor` 检查本机工具。直接读取工作区不需要发起 Codex 推理。
 
 ```sh
-git clone https://github.com/wrfgup/taskquay.git
+git clone https://github.com/orange4664/taskquay.git
 cd taskquay
 npm install --global pnpm@11.25.0
 pnpm install --frozen-lockfile

@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { FolderPlus, Download, RefreshCw } from "lucide";
+import { Modal, ConsoleIcon } from "./console-modal.js";
+import { FolderRegistration, SessionRegistration, ImportedSessions } from "./console-registration-ui.js";
+import type { ImportedSession } from "../console-registration-types.js";
 import "./console.css";
+import "./console-registration.css";
 
 type Quality = "complete" | "partial" | "unavailable" | "not_used";
 type Counts = { totalTokens: number; inputTokens: number; outputTokens: number; cachedInputTokens?: number; reasoningOutputTokens?: number; cacheWriteInputTokens?: number };
@@ -44,13 +49,6 @@ function TokenValue({ usage, compact = false }: { usage: Usage; compact?: boolea
   return <span className={compact ? "token compact" : "token"}><strong>{n(usage.codexUsage?.totalTokens)}</strong>{!compact && <small>Token</small>}
     <span className={`quality ${usage.usageStatus}`}>{qualities[usage.usageStatus]}</span></span>;
 }
-function Modal({ title, children, close, locked = false }: { title: string; children: React.ReactNode; close: () => void; locked?: boolean }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => { ref.current?.showModal(); return () => ref.current?.close(); }, []);
-  return <dialog className="modal" ref={ref} onCancel={(event) => { event.preventDefault(); if (!locked) close(); }} aria-label={title}>
-    <header><h2>{title}</h2><button className="icon-button" aria-label="关闭" onClick={close} disabled={locked}>×</button></header><div className="modal-content">{children}</div></dialog>;
-}
-
 function ConsoleApp() {
   const [csrf, setCsrf] = useState<string | null>(null);
   const [boot, setBoot] = useState(true); const [password, setPassword] = useState("");
@@ -60,6 +58,9 @@ function ConsoleApp() {
   const [tab, setTab] = useState("tasks"); const [source, setSource] = useState(""); const [status, setStatus] = useState(""); const [range, setRange] = useState("all");
   const [runs, setRuns] = useState<Receipt[]>([]); const [offset, setOffset] = useState<number | null>(null); const [stats, setStats] = useState<Project | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]); const [selection, setSelection] = useState<Set<string>>(new Set());
+  const [imports, setImports] = useState<ImportedSession[]>([]);
+  const [localRegistration, setLocalRegistration] = useState(false);
+  const [folderDialog, setFolderDialog] = useState(false); const [sessionDialog, setSessionDialog] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null); const [batch, setBatch] = useState<Batch | null>(null);
   const [history, setHistory] = useState<{ id: string; mode: string; status: string; created_at: string }[]>([]);
   const [attention, setAttention] = useState<{ claims: any[]; waiters: any[] }>({ claims: [], waiters: [] });
@@ -72,11 +73,11 @@ function ConsoleApp() {
       cache: "no-store", headers: body === undefined ? {} : { "Content-Type": "application/json", ...(csrf ? { "X-DevSpace-CSRF": csrf } : {}) },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
     if (response.status === 401) { setCsrf(null); throw new Error(path === "login" ? "授权口令不正确。" : "会话已过期，请重新登录。"); }
-    const result = await response.json();
+    const result = response.headers.get("content-type")?.includes("application/json") ? await response.json() : {};
     if (!response.ok) throw new Error(result.message ?? (response.status === 429 ? "操作过于频繁，请稍后再试。" : "请求未通过校验，状态尚未改变。"));
     return result;
   }, [csrf]);
-  useEffect(() => { void api("session").then((result) => setCsrf(result.csrf)).catch(() => {}).finally(() => setBoot(false)); }, []);
+  useEffect(() => { void api("session").then((result) => { setCsrf(result.csrf); setLocalRegistration(result.localRegistration === true); }).catch(() => {}).finally(() => setBoot(false)); }, []);
   const query = () => {
     const params = new URLSearchParams(); if (source) params.set("source", source); if (status) params.set("status", status);
     if (range !== "all") params.set("after", new Date(Date.now() - Number(range) * 86400000).toISOString());
@@ -96,15 +97,15 @@ function ConsoleApp() {
       setRuns(tasks.entries); setOffset(tasks.nextOffset); setStats(tasks.stats);
       if (tab === "sessions") {
         const [sessions, batches] = await Promise.all([api(`${root}/threads`), api(`${root}/archive`)]);
-        if (turn !== epoch.current) return; setThreads(sessions.threads); setHistory(batches.batches);
+        if (turn !== epoch.current) return; setThreads(sessions.threads); setImports(sessions.imports ?? []); setHistory(batches.batches);
       }
       if (tab === "attention") { const next = await api(`${root}/attention`); if (turn === epoch.current) setAttention(next); }
       setUpdated(new Date().toISOString());
     } catch (cause) { if (turn === epoch.current) setError(cause instanceof Error ? cause.message : "读取失败"); }
   }, [api, csrf, projectId, tab, source, status, range]);
-  useEffect(() => { void refresh(); const timer = setInterval(() => { if (!document.hidden && !busy && !batch && !detail) void refresh(); }, 5000);
-    return () => { clearInterval(timer); epoch.current++; }; }, [refresh, busy, batch, detail]);
-  useEffect(() => { setSelection(new Set()); setDetail(null); setBatch(null); }, [projectId]);
+  useEffect(() => { void refresh(); const timer = setInterval(() => { if (!document.hidden && !busy && !batch && !detail && !folderDialog && !sessionDialog) void refresh(); }, 5000);
+    return () => { clearInterval(timer); epoch.current++; }; }, [refresh, busy, batch, detail, folderDialog, sessionDialog]);
+  useEffect(() => { setSelection(new Set()); setDetail(null); setBatch(null); setSessionDialog(false); setImports([]); setThreads([]); }, [projectId]);
   const act = async (action: () => Promise<void>) => { setBusy(true); setError(""); try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : "操作失败"); } finally { setBusy(false); } };
   const openDetail = (runId: string) => act(async () => setDetail(await api(`projects/${projectId}/runs/${runId}`)));
   useEffect(() => {
@@ -131,7 +132,7 @@ function ConsoleApp() {
   if (!csrf) return <main className="login-page"><section className="login-card">
     <div className="brand-mark">D<span>›</span></div><p className="eyebrow">DEVSPACE / PROJECT CONSOLE</p><h1>项目任务台</h1>
     <p className="lead">任务从哪里来，进展到哪里，<br />Codex 用了多少——一处看清。</p>
-    <form onSubmit={(event) => { event.preventDefault(); void act(async () => { const result = await api("login", { password }); setPassword(""); setCsrf(result.csrf); }); }}>
+    <form onSubmit={(event) => { event.preventDefault(); void act(async () => { const result = await api("login", { password }); setPassword(""); setCsrf(result.csrf); setLocalRegistration(result.localRegistration === true); }); }}>
       <label htmlFor="owner-password">DevSpace 授权口令</label><input id="owner-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required maxLength={2048} />
       {error && <p className="notice error" role="alert">{error}</p>}<button className="primary" disabled={busy}>{busy ? "正在验证…" : "进入任务台"}</button>
     </form><p className="privacy-note">使用现有 DevSpace owner token 登录。口令不会写入网址或浏览器本地存储。浏览、统计和归档本身不调用 Codex 推理。</p>
@@ -140,16 +141,17 @@ function ConsoleApp() {
   return <div className="console-shell">
     <aside className="sidebar"><a className="brand" href="/console/"><span className="brand-mark small">D<span>›</span></span><span>DevSpace<small>项目任务台</small></span></a>
       <div className="sidebar-heading">项目 <span>{projects.length}</span></div>
+      {localRegistration && <button className="add-project" onClick={() => setFolderDialog(true)} disabled={busy}><ConsoleIcon icon={FolderPlus} />添加文件夹</button>}
       <nav aria-label="项目选择">{projects.map((entry) => <button key={entry.id} className={`project-button ${entry.id === projectId ? "selected" : ""}`} onClick={() => setProjectId(entry.id)} disabled={busy}>
         <span className="project-initial">{entry.name.slice(0, 1).toUpperCase()}</span><span>{entry.name}<small>{entry.taskCount} 项任务 · {entry.activeTasks} 项进行中</small></span>{entry.activeTasks > 0 && <i className="live-dot" />}
       </button>)}</nav>
       <div className="sidebar-bottom"><span className="online-dot" /> 已认证的管理会话<p>仅展示 DevSpace 登记的任务。<br />未纳管聊天不会自动收集。</p><button onClick={() => void act(async () => { await api("logout", {}); setCsrf(null); })}>退出登录</button></div>
     </aside>
     <main className="main-content"><header className="page-header"><div><p className="eyebrow">WORK, WITH A RECORD</p><h1>{project?.name ?? "项目任务台"}</h1><p className="path" title={project?.root}>{project?.root ?? "打开工作区并开始任务后，这里会出现项目。"}</p></div>
-      <div className="header-actions"><span className="updated">{updated ? `${date(updated)} 更新` : "读取中"}</span><button onClick={() => void refresh()} disabled={busy}>↻ 刷新</button><button onClick={() => void act(async () => { await api("logout", {}); setCsrf(null); })} disabled={busy}>退出</button></div></header>
+      <div className="header-actions"><span className="updated">{updated ? `${date(updated)} 更新` : "读取中"}</span><button className="icon-command" aria-label="刷新" title="刷新" onClick={() => void refresh()} disabled={busy}><ConsoleIcon icon={RefreshCw} /></button><button onClick={() => void act(async () => { await api("logout", {}); setCsrf(null); })} disabled={busy}>退出</button></div></header>
       {error && <div role="alert" className="notice error">{error}<button onClick={() => setError("")}>关闭</button></div>}
       {message && <div role="status" className="notice success">{message}<button onClick={() => setMessage("")}>关闭</button></div>}
-      {!project ? <section className="empty big"><span>◇</span><h2>还没有可见项目</h2><p>通过 DevSpace 打开工作区，再由主控使用 work_task 开始一项任务。<br />纯主控任务也会记账，未调用 Codex 时明确显示零。</p></section> : <>
+      {!project ? <section className="empty big"><h2>还没有登记的项目</h2>{localRegistration && <button className="primary" onClick={() => setFolderDialog(true)}><ConsoleIcon icon={FolderPlus} />添加文件夹</button>}</section> : <>
       <section className="metric-grid" aria-label="项目统计"><article className="metric accent"><span>已记录的 Codex 消耗</span>{stats ? <TokenValue usage={stats} /> : <strong>—</strong>}<small>按任务开始时间统计 · 不等于订阅账单</small></article>
         <article className="metric"><span>进行中的任务</span><strong>{stats?.activeTasks ?? 0}<small> / {stats?.taskCount ?? 0}</small></strong><small>执行状态与验收结果分别记录</small></article>
         <article className="metric"><span>等待验收</span><strong>{stats?.pendingAcceptance ?? 0}</strong><small>模型回复结束，不代表验收通过</small></article>
@@ -169,6 +171,10 @@ function ConsoleApp() {
           {offset !== null && <button className="load-more" disabled={busy} onClick={() => void act(async () => { const params = query(); params.set("offset", String(offset)); const more = await api(`projects/${projectId}/runs?${params}`); setRuns((current) => [...current, ...more.entries]); setOffset(more.nextOffset); })}>加载更多</button>}
         </section></>}
       {tab === "sessions" && <>
+        <div className="registration-toolbar"><h2>项目会话</h2>{localRegistration && <button className="primary" onClick={() => setSessionDialog(true)} disabled={busy}><ConsoleIcon icon={Download} />登记已有会话</button>}</div>
+        <ImportedSessions entries={imports} busy={busy} canManage={localRegistration} remove={(id) => void act(async () => {
+          await api(`projects/${encodeURIComponent(projectId)}/session-imports/${encodeURIComponent(id)}/remove`, {}); setMessage("已移除登记，原会话保持不变。"); await refresh();
+        })} />
         <div className="session-note"><span>◇</span><div><strong>只整理能证明归属的会话</strong><p>Codex 归档会隐藏原聊天，不删除任务或 Token 历史；它也不会取消进程。存在外部续写或未验收任务时，默认跳过。</p></div></div>
         <div className="toolbar session-toolbar"><label className="check-label"><input type="checkbox" checked={acceptPartial} onChange={(event) => setAcceptPartial(event.target.checked)} />预览时允许保留不完整用量回执</label><div className="button-row"><button onClick={() => void preview("restore")} disabled={busy}>恢复已归档会话</button><button className="primary" onClick={() => void preview("archive")} disabled={busy}>{selection.size ? `预览归档 ${selection.size} 个会话` : "预览项目归档"}</button></div></div>
         <section className="table-panel"><div className="panel-title"><h2>受管 Codex 会话</h2><span>{threads.length} 个 · 来源登记，不靠标题猜测</span></div>{!threads.length ? <div className="empty"><h3>没有受管 Codex 会话</h3><p>主控直接读取不创建 Codex 聊天。</p></div> : <div className="table-scroll"><table><thead><tr><th><span className="sr-only">选择</span></th><th>会话 / 归属</th><th>来源可信度</th><th>归档状态</th><th>保留</th></tr></thead><tbody>{threads.map((thread) => <tr key={thread.id}>
@@ -183,6 +189,12 @@ function ConsoleApp() {
       </>}
       <footer className="page-footer"><span>DevSpace · 执行与证据层</span><span>页面刷新、统计和归档控制均不启动模型推理</span></footer>
     </main>
+    {folderDialog && <FolderRegistration api={api} initialPath={project?.root ?? ""} close={() => setFolderDialog(false)} registered={(id) => {
+      setFolderDialog(false); setProjectId(id); setTab("sessions"); setMessage("项目文件夹已登记。"); void refresh();
+    }} />}
+    {sessionDialog && project && <SessionRegistration api={api} projectId={projectId} projectRoot={project.root} close={() => setSessionDialog(false)} registered={() => {
+      setSessionDialog(false); setMessage("所选会话已登记，原会话和历史用量保持不变。"); void refresh();
+    }} />}
     {detail && <Modal title="任务详情与完成回执" close={() => setDetail(null)}><p className="eyebrow">{sourceLabels[detail.origin.entryPoint]}</p><h3 className="detail-title">{detail.title}</h3><div className="button-row"><Badge value={detail.executionStatus} /><Badge value={detail.acceptanceStatus} /></div>
       <div className="detail-usage"><TokenValue usage={detail} /><p>回执版本 {detail.receiptRevision} · {detail.missingExecutions} 个执行存在用量缺口</p></div><p>{detail.summary || "工作尚未提交最终验收摘要。"}</p>
       <h3>验收证据</h3>{detail.evidence.length ? detail.evidence.map((entry, index) => <div className="evidence" key={index}><Badge value={entry.outcome} /><strong>{entry.label}</strong><code>{entry.reference}</code></div>) : <p className="subtle">尚无最终验收证据，不将模型回复自动视为通过。</p>}

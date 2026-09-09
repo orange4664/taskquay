@@ -2,13 +2,15 @@
 
 **Your familiar ChatGPT conversation, connected to the coding agents on your machine.**
 
-[简体中文](README.md) · [English](README.en.md) · [GitHub](https://github.com/wrfgup/taskquay) · [Connection guide](docs/chatgpt-mcp-setup.zh-CN.md) · [MIT license](LICENSE)
+[简体中文](README.md) · [English](README.en.md) · [GitHub](https://github.com/orange4664/taskquay) · [Connection guide](docs/chatgpt-mcp-setup.zh-CN.md) · [MIT license](LICENSE)
+
+This maintenance fork of [wrfgup/taskquay](https://github.com/wrfgup/taskquay) adds local GUI folder browsing, explicit registration of existing Codex sessions, and security fixes. In `/console/`, choose **添加文件夹**, then open **Codex 会话 → 登记已有会话** in the project. See [registration, security boundaries, and upgrades](docs/local-registration.md).
 
 TaskQuay is a self-hosted execution and project-management layer for MCP-capable AI hosts. Let ChatGPT or another host inspect your workspace directly, delegate bounded work to Codex when useful, and return a result backed by changes, checks, and a task-level usage receipt.
 
 It is an **independent fork of [Waishnav/DevSpace](https://github.com/Waishnav/devspace)**, not an official OpenAI, Anthropic, or upstream DevSpace product. The upstream implementation and its MIT copyright notice are retained. This fork focuses on host-first context gathering, controlled agent concurrency, reusable sessions, observable work, and honest Codex usage reporting.
 
-> **Early-stage, source-first project.** The public-facing name is TaskQuay. The CLI command, configuration directory, MCP identifiers, and existing UI labels remain `devspace` for compatibility. The upstream npm package does **not** necessarily include this fork's changes. The source repository is [wrfgup/taskquay](https://github.com/wrfgup/taskquay); no TaskQuay npm release is implied.
+> **Early-stage, source-first project.** The public-facing name is TaskQuay. The CLI command, configuration directory, MCP identifiers, and existing UI labels remain `devspace` for compatibility. The upstream npm package does **not** necessarily include this fork's changes. The source repository is [orange4664/taskquay](https://github.com/orange4664/taskquay); no TaskQuay npm release is implied.
 
 ## Is this the workflow you have been missing?
 
@@ -92,7 +94,7 @@ Clone **this fork**, then run:
 The package currently has `private: true` as a guard against accidental npm publication under the upstream namespace. This does not prevent publishing the reviewed source repository under MIT.
 
 ```sh
-git clone https://github.com/wrfgup/taskquay.git
+git clone https://github.com/orange4664/taskquay.git
 cd taskquay
 npm install --global pnpm@11.25.0
 pnpm install --frozen-lockfile

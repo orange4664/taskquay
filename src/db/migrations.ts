@@ -167,6 +167,23 @@ migrations.push({ version: 12, name: "bounded-agent-progress", up(sqlite) {
   addColumnIfMissing(sqlite, "local_agent_sessions", "progress", "text");
 } });
 migrations.push({ version: 13, name: "workspace-recovery-state", up: migrateWorkspaceRecoveryState });
+migrations.push({ version: 14, name: "console-imported-session-references", up(sqlite) {
+  sqlite.exec(`create table console_thread_references (
+    id text primary key,
+    project_id text not null references console_projects(id),
+    instance_id text not null,
+    thread_id text not null,
+    title text not null,
+    cwd text not null,
+    source text not null,
+    status text not null,
+    archived integer not null check (archived in (0,1)),
+    provider_updated_at text,
+    imported_at text not null,
+    unique (project_id, instance_id, thread_id)
+  );
+  create index console_references_project on console_thread_references(project_id, imported_at);`);
+} });
 
 function migrateWorkspaceState(sqlite: Database.Database): void {
   sqlite.exec(`
