@@ -81,6 +81,7 @@ export function SessionRegistration({ api, projectId, projectRoot, close, regist
   };
   return <Modal title="登记已有 Codex 会话" close={close} locked={busy}>
     <div className="selection-path"><ConsoleIcon icon={FolderOpen} /><code>{projectRoot}</code></div>
+    <p className="catalog-guidance">选择要在此项目中显示的会话，仅登记标题等索引信息。每次最多选择 50 个；更换搜索或归档状态会清空本次选择。</p>
     <form className="catalog-filters" onSubmit={(event) => { event.preventDefault(); void load(); }}>
       <label className="catalog-search"><span className="sr-only">搜索会话</span><input value={search} maxLength={120} placeholder="搜索会话" disabled={busy} onChange={(event) => setSearch(event.target.value)} /></label>
       <button type="submit" className="icon-command" title="搜索会话" aria-label="搜索会话" disabled={busy}><ConsoleIcon icon={Search} /></button>
@@ -105,7 +106,7 @@ export function ImportedSessions({ entries, busy, canManage, remove }: {
   entries: ImportedSession[]; busy: boolean; canManage: boolean; remove: (id: string) => void;
 }) {
   return <section className="imported-sessions"><div className="panel-title"><h2>手动登记的会话</h2><span>{entries.length} 个</span></div>
-    {!entries.length ? <div className="empty"><h3>尚未登记已有会话</h3></div> : <div className="imported-list">{entries.map((entry) => <article className="imported-row" key={entry.id}>
+    {!entries.length ? <div className="empty"><h3>尚未登记已有会话</h3><p>{canManage ? "点击上方“登记已有会话”，选择要显示的 Codex 会话。" : "请在运行服务的电脑上打开本机管理台进行登记。"}</p></div> : <div className="imported-list">{entries.map((entry) => <article className="imported-row" key={entry.id}>
       <div><strong className="thread-title">{entry.title}</strong><div className="source-line">手动登记 · {entry.source} · 历史用量未知</div><code>{entry.threadId}</code></div>
       <div className="imported-status"><span className="badge">{entry.archived ? "已归档" : statuses[entry.status] ?? entry.status}</span><small>{date(entry.updatedAt)}</small></div>
       {canManage && <button className="icon-command" title="移除登记，保留原会话" aria-label={`移除登记 ${entry.title}`} disabled={busy} onClick={() => remove(entry.id)}><ConsoleIcon icon={Trash2} /></button>}

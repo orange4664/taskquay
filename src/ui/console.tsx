@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { FolderPlus, Download, RefreshCw, Layers2, LogOut, X, ListTodo, MessagesSquare, ChartNoAxesColumn, CircleAlert, Folder, Archive, ArchiveRestore, ShieldCheck, ChevronRight, LockKeyhole } from "lucide";
+import { FolderPlus, Download, RefreshCw, Layers2, LogOut, X, ListTodo, MessagesSquare, ChartNoAxesColumn, CircleAlert, Folder, Archive, ArchiveRestore, ShieldCheck, ChevronRight, LockKeyhole, BookOpen, Search } from "lucide";
 import { Modal, ConsoleIcon } from "./console-modal.js";
 import { FolderRegistration, SessionRegistration, ImportedSessions } from "./console-registration-ui.js";
+import { ConnectionGuide } from "./console-connection-ui.js";
 import type { ImportedSession } from "../console-registration-types.js";
 import "@fontsource-variable/geist";
 import "./console.css";
@@ -56,6 +57,14 @@ function ConsoleApp() {
   const [error, setError] = useState(""); const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
+  const [projectSearch, setProjectSearch] = useState("");
+  const [guide, setGuide] = useState(location.hash === "#guide");
+  const [loadedKey, setLoadedKey] = useState("");
+  const [refreshError, setRefreshError] = useState("");
+  const loadedPages = useRef(1);
+  const refreshBusy = useRef<number | null>(null);
+  const authGeneration = useRef(0);
   const [projectId, setProjectId] = useState(new URLSearchParams(location.search).get("project") ?? "");
   const [tab, setTab] = useState("tasks"); const [source, setSource] = useState(""); const [status, setStatus] = useState(""); const [range, setRange] = useState("all");
   const [runs, setRuns] = useState<Receipt[]>([]); const [offset, setOffset] = useState<number | null>(null); const [stats, setStats] = useState<Project | null>(null);
@@ -70,15 +79,43 @@ function ConsoleApp() {
   const [updated, setUpdated] = useState<string>(); const epoch = useRef(0);
   const initialRun = useRef(new URLSearchParams(location.search).get("run"));
   const project = projects.find((entry) => entry.id === projectId);
+  const viewKey = JSON.stringify([projectId, tab, source, status, range]);
+  const viewRef = useRef(viewKey); viewRef.current = viewKey;
+  const dataReady = loadedKey === viewKey;
+  const visibleStats = dataReady ? stats : null;
+  const resetSession = useCallback(() => {
+    authGeneration.current++; epoch.current++; refreshBusy.current = null;
+    setCsrf(null); setPassword(""); setProjectSearch(""); setProjectId(""); setOffset(null); setProjects([]); setProjectsLoaded(false); setLoadedKey("");
+    setRuns([]); setStats(null); setThreads([]); setImports([]); setHistory([]); setSelection(new Set());
+    setDetail(null); setBatch(null); setFolderDialog(false); setSessionDialog(false); setMessage("");
+    setUpdated(undefined); setRefreshError(""); setAttention({ claims: [], waiters: [] });
+  }, []);
   const api = useCallback(async (path: string, body?: unknown) => {
-    const response = await fetch(`/console/api/${path}`, { method: body === undefined ? "GET" : "POST", credentials: "same-origin",
-      cache: "no-store", headers: body === undefined ? {} : { "Content-Type": "application/json", ...(csrf ? { "X-DevSpace-CSRF": csrf } : {}) },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
-    if (response.status === 401) { setCsrf(null); throw new Error(path === "login" ? "授权口令不正确。" : "会话已过期，请重新登录。"); }
-    const result = response.headers.get("content-type")?.includes("application/json") ? await response.json() : {};
-    if (!response.ok) throw new Error(result.message ?? (response.status === 429 ? "操作过于频繁，请稍后再试。" : "请求未通过校验，状态尚未改变。"));
-    return result;
-  }, [csrf]);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20_000);
+    const generation = authGeneration.current;
+    try {
+      const response = await fetch(`/console/api/${path}`, { method: body === undefined ? "GET" : "POST", credentials: "same-origin",
+        cache: "no-store", signal: controller.signal,
+        headers: body === undefined ? {} : { "Content-Type": "application/json", ...(csrf ? { "X-DevSpace-CSRF": csrf } : {}) },
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+      if (generation !== authGeneration.current) throw new Error("登录状态已变化，请重新操作。");
+      if (response.status === 401) {
+        resetSession();
+        const message = path === "login" ? "授权口令不正确。" : "会话已过期，请重新登录。";
+        if (path !== "session") setError(message);
+        throw new Error(message);
+      }
+      const result = response.headers.get("content-type")?.includes("application/json") ? await response.json() : {};
+      if (!response.ok) throw new Error(result.message ?? (response.status === 429 ? "操作过于频繁，请稍后再试。" : "请求未通过校验，请刷新状态后重试。"));
+      return result;
+    } catch (cause) {
+      if (controller.signal.aborted || cause instanceof TypeError) throw new Error(body === undefined
+        ? "暂时无法读取本机服务，请检查服务是否运行后重试。"
+        : "连接中断，操作结果尚未确认。请刷新核对后再操作。");
+      throw cause;
+    } finally { clearTimeout(timer); }
+  }, [csrf, resetSession]);
   useEffect(() => { void api("session").then((result) => { setCsrf(result.csrf); setLocalRegistration(result.localRegistration === true); }).catch(() => {}).finally(() => setBoot(false)); }, []);
   const query = () => {
     const params = new URLSearchParams(); if (source) params.set("source", source); if (status) params.set("status", status);
@@ -86,29 +123,64 @@ function ConsoleApp() {
     return params;
   };
   const refresh = useCallback(async () => {
-    if (!csrf) return;
+    if (!csrf || refreshBusy.current !== null) return;
     const turn = ++epoch.current;
+    refreshBusy.current = turn;
+    const current = () => turn === epoch.current && viewRef.current === viewKey;
     try {
-      const list = await api("projects"); if (turn !== epoch.current) return;
-      setProjects(list.projects);
+      const list = await api("projects"); if (!current()) return;
+      setProjects(list.projects); setProjectsLoaded(true);
       const id = list.projects.some((entry: Project) => entry.id === projectId) ? projectId : list.projects[0]?.id;
-      if (!id) { setUpdated(new Date().toISOString()); return; }
+      if (!id) { setProjectId(""); setUpdated(new Date().toISOString()); setRefreshError(""); return; }
       if (id !== projectId) { setProjectId(id); return; }
       const root = `projects/${encodeURIComponent(id)}`;
-      const tasks = await api(`${root}/runs?${query()}`); if (turn !== epoch.current) return;
-      setRuns(tasks.entries); setOffset(tasks.nextOffset); setStats(tasks.stats);
+      const entries: Receipt[] = [];
+      let nextOffset: number | null = 0;
+      let nextStats: Project | null = null;
+      const params = query();
+      for (let page = 0; page < loadedPages.current && nextOffset !== null; page++) {
+        params.set("offset", String(nextOffset));
+        const tasks = await api(`${root}/runs?${params}`); if (!current()) return;
+        entries.push(...tasks.entries); nextOffset = tasks.nextOffset; nextStats = tasks.stats;
+      }
       if (tab === "sessions") {
         const [sessions, batches] = await Promise.all([api(`${root}/threads`), api(`${root}/archive`)]);
-        if (turn !== epoch.current) return; setThreads(sessions.threads); setImports(sessions.imports ?? []); setHistory(batches.batches);
+        if (!current()) return; setThreads(sessions.threads); setImports(sessions.imports ?? []); setHistory(batches.batches);
       }
-      if (tab === "attention") { const next = await api(`${root}/attention`); if (turn === epoch.current) setAttention(next); }
-      setUpdated(new Date().toISOString());
-    } catch (cause) { if (turn === epoch.current) setError(cause instanceof Error ? cause.message : "读取失败"); }
-  }, [api, csrf, projectId, tab, source, status, range]);
-  useEffect(() => { void refresh(); const timer = setInterval(() => { if (!document.hidden && !busy && !batch && !detail && !folderDialog && !sessionDialog) void refresh(); }, 5000);
-    return () => { clearInterval(timer); epoch.current++; }; }, [refresh, busy, batch, detail, folderDialog, sessionDialog]);
+      if (tab === "attention") { const next = await api(`${root}/attention`); if (!current()) return; setAttention(next); }
+      if (!current()) return;
+      setRuns([...new Map(entries.map((entry) => [entry.workRunId, entry])).values()]);
+      setOffset(nextOffset); setStats(nextStats); setLoadedKey(viewKey);
+      setUpdated(new Date().toISOString()); setRefreshError("");
+    } catch (cause) { if (current()) setRefreshError(cause instanceof Error ? cause.message : "读取失败，请重试。"); }
+    finally { if (refreshBusy.current === turn) refreshBusy.current = null; }
+  }, [api, csrf, viewKey, projectId, tab, source, status, range]);
+  useEffect(() => {
+    loadedPages.current = 1; refreshBusy.current = null; setRefreshError("");
+    void refresh();
+    return () => { epoch.current++; refreshBusy.current = null; };
+  }, [refresh]);
+  useEffect(() => {
+    const autoRefresh = () => {
+      if (!document.hidden && !busy && !batch && !detail && !folderDialog && !sessionDialog && !guide) void refresh();
+    };
+    // Large, explicitly expanded lists refresh less often and retain their window.
+    const timer = setInterval(autoRefresh, Math.max(5000, loadedPages.current * 5000));
+    document.addEventListener("visibilitychange", autoRefresh);
+    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", autoRefresh); };
+  }, [refresh, busy, batch, detail, folderDialog, sessionDialog, guide]);
+  useEffect(() => {
+    const changed = () => setGuide(location.hash === "#guide");
+    window.addEventListener("hashchange", changed);
+    return () => window.removeEventListener("hashchange", changed);
+  }, []);
+  const showGuide = () => { location.hash = "guide"; setGuide(true); };
+  const chooseProject = (id: string) => {
+    window.history.replaceState(null, "", `${location.pathname}${location.search}`);
+    setGuide(false); setProjectId(id);
+  };
   useEffect(() => { setSelection(new Set()); setDetail(null); setBatch(null); setSessionDialog(false); setImports([]); setThreads([]); }, [projectId]);
-  const act = async (action: () => Promise<void>) => { setBusy(true); setError(""); try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : "操作失败"); } finally { setBusy(false); } };
+  const act = async (action: () => Promise<void>) => { setBusy(true); setError(""); epoch.current++; refreshBusy.current = null; try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : "操作失败"); } finally { setBusy(false); } };
   const openDetail = (runId: string) => act(async () => setDetail(await api(`projects/${projectId}/runs/${runId}`)));
   useEffect(() => {
     if (!csrf || !projectId || !initialRun.current) return;
@@ -138,40 +210,47 @@ function ConsoleApp() {
       <label htmlFor="owner-password">授权口令</label><input id="owner-password" aria-label="DevSpace 授权口令" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required maxLength={2048} />
       {error && <p className="notice error" role="alert">{error}</p>}<button className="primary" disabled={busy}>{busy ? "正在验证…" : "进入任务台"}<ConsoleIcon icon={ChevronRight} /></button>
     </form>
+    <details className="login-help"><summary>口令在哪里？</summary><p>使用初始化 TaskQuay 时生成的 owner 口令，与自己的 OAuth 授权页相同。口令保存在运行服务的电脑上，由管理员保管；不要粘贴到聊天里。</p></details>
   </section><div className="login-caption"><ConsoleIcon icon={LockKeyhole} />本机管理访问</div></main>;
 
   return <div className="console-shell">
     <aside className="sidebar"><a className="brand" href="/console/"><span className="brand-mark small"><ConsoleIcon icon={Layers2} /></span><span>TaskQuay<small>项目任务台</small></span></a>
+      <button className={`guide-nav ${guide ? "selected" : ""}`} aria-current={guide ? "page" : undefined} onClick={showGuide} disabled={busy}><ConsoleIcon icon={BookOpen} />接入与使用</button>
       <div className="sidebar-heading">项目 <span>{projects.length}</span></div>
       {localRegistration && <button className="add-project" onClick={() => setFolderDialog(true)} disabled={busy}><ConsoleIcon icon={FolderPlus} />添加文件夹</button>}
-      <nav aria-label="项目选择">{projects.map((entry) => <button key={entry.id} className={`project-button ${entry.id === projectId ? "selected" : ""}`} aria-current={entry.id === projectId ? "page" : undefined} onClick={() => setProjectId(entry.id)} disabled={busy}>
+      {projects.length > 0 && <label className="project-search"><ConsoleIcon icon={Search} /><span className="sr-only">搜索项目</span><input type="search" value={projectSearch} placeholder="搜索项目" onChange={(event) => setProjectSearch(event.target.value)} /></label>}
+      <nav aria-label="项目选择">{projects.filter((entry) => `${entry.name} ${entry.root}`.toLocaleLowerCase().includes(projectSearch.trim().toLocaleLowerCase())).map((entry) => <button key={entry.id} className={`project-button ${!guide && entry.id === projectId ? "selected" : ""}`} aria-current={!guide && entry.id === projectId ? "page" : undefined} onClick={() => chooseProject(entry.id)} disabled={busy}>
         <ConsoleIcon icon={Folder} /><span className="project-name">{entry.name}<small>{entry.taskCount} 项任务 · {entry.activeTasks} 项进行中</small></span>{entry.activeTasks > 0 && <i className="live-dot" />}
       </button>)}</nav>
-      <div className="sidebar-bottom"><span className="online-dot" /> 管理会话已连接</div>
+      {projectSearch && !projects.some((entry) => `${entry.name} ${entry.root}`.toLocaleLowerCase().includes(projectSearch.trim().toLocaleLowerCase())) && <p className="project-search-empty">没有匹配项目。<button onClick={() => setProjectSearch("")}>清除搜索</button></p>}
+      <div className="sidebar-bottom"><span className={refreshError ? "offline-dot" : "online-dot"} />{refreshError ? "本机服务暂不可用" : "已登录本机管理台"}</div>
     </aside>
-    <main className="main-content"><header className="page-header"><div><p className="eyebrow">项目工作区</p><h1>{project?.name ?? "项目任务台"}</h1>{project && <p className="path" title={project.root}>{project.root}</p>}</div>
-      <div className="header-actions"><span className="updated">{updated ? `${date(updated)} 更新` : "读取中"}</span><button className={`icon-command ${refreshing ? "is-refreshing" : ""}`} aria-label="刷新" title="刷新" onClick={() => { setRefreshing(true); void refresh().finally(() => setRefreshing(false)); }} disabled={busy || refreshing}><ConsoleIcon icon={RefreshCw} /></button><button className="icon-command" aria-label="退出登录" title="退出登录" onClick={() => void act(async () => { await api("logout", {}); setCsrf(null); })} disabled={busy}><ConsoleIcon icon={LogOut} /></button></div></header>
+    <main className="main-content"><header className="page-header"><div><p className="eyebrow">{guide ? "开始使用 TASKQUAY" : "项目工作区"}</p><h1>{guide ? "接入与使用" : project?.name ?? "项目任务台"}</h1>{project && !guide && <p className="path" title={project.root}>{project.root}</p>}</div>
+      <div className="header-actions"><span className="updated">{updated ? `${date(updated)} 更新` : "读取中"}</span><button className={`icon-command ${refreshing ? "is-refreshing" : ""}`} aria-label="刷新" title="刷新" onClick={() => { setRefreshing(true); void refresh().finally(() => setRefreshing(false)); }} disabled={busy || refreshing}><ConsoleIcon icon={RefreshCw} /></button><button className="icon-command" aria-label="退出登录" title="退出登录" onClick={() => void act(async () => { await api("logout", {}); resetSession(); })} disabled={busy}><ConsoleIcon icon={LogOut} /></button></div></header>
       {error && <div role="alert" className="notice error"><span>{error}</span><button className="icon-command" aria-label="关闭提示" title="关闭提示" onClick={() => setError("")}><ConsoleIcon icon={X} /></button></div>}
       {message && <div role="status" className="notice success"><span>{message}</span><button className="icon-command" aria-label="关闭提示" title="关闭提示" onClick={() => setMessage("")}><ConsoleIcon icon={X} /></button></div>}
-      {!project ? <section className="empty big"><ConsoleIcon icon={FolderPlus} /><h2>还没有登记的项目</h2>{localRegistration && <button className="primary" onClick={() => setFolderDialog(true)}><ConsoleIcon icon={FolderPlus} />添加文件夹</button>}</section> : <>
-      <section className="metric-grid" aria-label="项目统计"><article className="metric accent"><span>已记录的 Codex 消耗</span>{stats ? <TokenValue usage={stats} /> : <strong>—</strong>}<small>按任务开始时间统计 · 不等于订阅账单</small></article>
-        <article className="metric"><span>进行中的任务</span><strong>{stats?.activeTasks ?? 0}<small> / {stats?.taskCount ?? 0}</small></strong><small>全部 {stats?.taskCount ?? 0} 项任务</small></article>
-        <article className="metric"><span>等待验收</span><strong>{stats?.pendingAcceptance ?? 0}</strong><small>待确认执行结果</small></article>
-        <article className="metric"><span>需要关注</span><strong>{stats?.needsAttention ?? 0}</strong><small>失败或待核对</small></article></section>
+      {refreshError && <div className="notice error" role="alert"><span>{refreshError}{dataReady ? " 当前显示上次成功读取的数据。" : ""}</span><button disabled={busy || refreshing} onClick={() => { setRefreshing(true); void refresh().finally(() => setRefreshing(false)); }}>重试</button></div>}
+      {guide ? <ConnectionGuide api={api} projectRoot={project?.root} canRegister={localRegistration} addFolder={() => setFolderDialog(true)} /> : !projectsLoaded ? <div className="view-loading" role="status" aria-busy={!refreshError}>{refreshError ? "尚未读取项目列表" : "正在读取项目…"}</div> : !project ? <section className="empty big"><ConsoleIcon icon={FolderPlus} /><h2>还没有登记的项目</h2><p>添加一个项目文件夹，选择已有会话，或先查看接入教程。</p>{localRegistration && <button className="primary" onClick={() => setFolderDialog(true)}><ConsoleIcon icon={FolderPlus} />添加文件夹</button>}<button onClick={showGuide}><ConsoleIcon icon={BookOpen} />查看接入教程</button></section> : <>
+      <section className="metric-grid" aria-label="项目统计"><article className="metric accent"><span>已记录的 Codex 消耗</span>{visibleStats ? <TokenValue usage={visibleStats} /> : <strong>—</strong>}<small>按任务开始时间统计 · 不等于订阅账单</small></article>
+        <article className="metric"><span>进行中的任务</span><strong>{visibleStats?.activeTasks ?? "—"}<small> / {visibleStats?.taskCount ?? "—"}</small></strong><small>全部 {visibleStats?.taskCount ?? "—"} 项任务</small></article>
+        <article className="metric"><span>等待验收</span><strong>{visibleStats?.pendingAcceptance ?? "—"}</strong><small>待确认执行结果</small></article>
+        <article className="metric"><span>需要关注</span><strong>{visibleStats?.needsAttention ?? "—"}</strong><small>失败或待核对</small></article></section>
       <nav className="tabs" aria-label="项目页面">{[{ value: "tasks", text: "任务", icon: ListTodo }, { value: "sessions", text: "Codex 会话", icon: MessagesSquare }, { value: "usage", text: "用量", icon: ChartNoAxesColumn }, { value: "attention", text: "需处理项", icon: CircleAlert }].map(({ value, text, icon }) =>
         <button key={value} className={tab === value ? "active" : ""} onClick={() => setTab(value)} disabled={busy} aria-current={tab === value ? "page" : undefined}><ConsoleIcon icon={icon} />{text}</button>)}</nav>
       <div className="view-content" key={`${projectId}:${tab}`}>
+      {(tab === "tasks" || tab === "usage") && <div className="toolbar"><div className="filters"><label>来源<select aria-label="来源" value={source} onChange={(event) => setSource(event.target.value)}><option value="">全部来源</option>{Object.entries(sourceLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>
+          <label>状态<select aria-label="状态" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option>{["running", "completed", "failed", "cancelled", "reconciliation_required"].map((value) => <option key={value} value={value}>{label(value)}</option>)}</select></label>
+          <label>开始时间<select aria-label="开始时间" value={range} onChange={(event) => setRange(event.target.value)}><option value="all">全部时间</option><option value="7">近 7 天</option><option value="30">近 30 天</option></select></label>{(source || status || range !== "all") && <button className="filter-reset" onClick={() => { setSource(""); setStatus(""); setRange("all"); }}>清除筛选</button>}</div><span className="subtle">缓存与推理明细不重复计入总量</span></div>}
+      {!dataReady ? <div className="view-loading" role="status" aria-busy={!refreshError}>{refreshError ? "此视图尚未读取成功，请重试。" : "正在读取项目数据…"}</div> : <>
       {(tab === "tasks" || tab === "usage") && <>
-        <div className="toolbar"><div className="filters"><label>来源<select value={source} onChange={(event) => setSource(event.target.value)}><option value="">全部来源</option>{Object.entries(sourceLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>
-          <label>状态<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option>{["running", "completed", "failed", "cancelled", "reconciliation_required"].map((value) => <option key={value} value={value}>{label(value)}</option>)}</select></label>
-          <label>开始时间<select value={range} onChange={(event) => setRange(event.target.value)}><option value="all">全部时间</option><option value="7">近 7 天</option><option value="30">近 30 天</option></select></label></div><span className="subtle">缓存与推理明细不重复计入总量</span></div>
+
         {tab === "usage" && <section className="usage-explainer"><h2>看总消耗，也看统计边界</h2><p>完整：受管执行与用量边界齐全。部分：有已记录值，但仍有缺口。未知：没有足够证据，不能写成零。未调用：确认没有发起 Codex 推理。</p>
           <dl><div><dt>输入</dt><dd>{n(stats?.codexUsage?.inputTokens)}</dd></div><div><dt>其中缓存读取</dt><dd>{n(stats?.codexUsage?.cachedInputTokens)}</dd></div><div><dt>输出</dt><dd>{n(stats?.codexUsage?.outputTokens)}</dd></div><div><dt>缺少完整用量的执行</dt><dd>{n(stats?.missingExecutions)}</dd></div></dl></section>}
         <section className="table-panel"><div className="panel-title"><h2>{tab === "usage" ? "逐任务用量" : "项目任务"}</h2><span>{runs.length} 项{offset !== null ? "已加载" : ""}</span></div>
-          {!runs.length ? <div className="empty"><h3>没有符合条件的任务</h3><p>调整筛选条件，或开始一项新的工作。</p></div> : <div className="table-scroll"><table className="tasks-table"><thead><tr><th>任务 / 来源</th><th>执行与验收</th><th>Codex Token</th><th>会话</th><th>开始时间</th></tr></thead><tbody>{runs.map((run) => <tr key={run.workRunId}>
+          {!runs.length ? <div className="empty"><h3>{source || status || range !== "all" ? "没有符合条件的任务" : "还没有任务回执"}</h3><p>{source || status || range !== "all" ? "清除筛选后可查看全部任务。" : "从已连接的 MCP 客户端开始工作，并用 work_task 记录回执。"}</p>{source || status || range !== "all" ? <button onClick={() => { setSource(""); setStatus(""); setRange("all"); }}>查看全部任务</button> : <button onClick={showGuide}>查看接入教程</button>}</div> : <div className="table-scroll"><table className="tasks-table"><thead><tr><th>任务 / 来源</th><th>执行与验收</th><th>Codex Token</th><th>会话</th><th>开始时间</th></tr></thead><tbody>{runs.map((run) => <tr key={run.workRunId}>
             <td><button className="task-title" onClick={() => void openDetail(run.workRunId)}>{run.title}</button><div className="source-line">{sourceLabels[run.origin.entryPoint] ?? run.origin.entryPoint}{run.origin.modelLabel && <span> · {run.origin.modelLabel}（标签）</span>}</div></td>
             <td><div className="state-stack"><Badge value={run.executionStatus} /><Badge value={run.acceptanceStatus} /></div></td><td><TokenValue usage={run} compact /></td><td>{run.codexThreads}</td><td className="date">{date(run.createdAt)}</td></tr>)}</tbody></table></div>}
-          {offset !== null && <button className="load-more" disabled={busy} onClick={() => void act(async () => { const params = query(); params.set("offset", String(offset)); const more = await api(`projects/${projectId}/runs?${params}`); setRuns((current) => [...current, ...more.entries]); setOffset(more.nextOffset); })}>加载更多</button>}
+          {offset !== null && <button className="load-more" disabled={busy} onClick={() => void act(async () => { loadedPages.current++; await refresh(); })}>加载更多</button>}
         </section></>}
       {tab === "sessions" && <>
         <div className="registration-toolbar"><h2>项目会话</h2>{localRegistration && <button className="primary" onClick={() => setSessionDialog(true)} disabled={busy}><ConsoleIcon icon={Download} />登记已有会话</button>}</div>
@@ -189,11 +268,11 @@ function ConsoleApp() {
       </>}
       {tab === "attention" && <section className="table-panel"><div className="panel-title"><h2>执行占用与等待</h2><span>只展示证据，不自动杀进程</span></div><div className="attention-content"><p>进程存在、模型线程空闲、任务完成是不同状态。中断遗留占用需要核对，不能通过归档聊天来“清理”。</p>
         {!attention.claims.length && !attention.waiters.length ? <div className="empty"><h3>当前没有登记的占用或等待</h3><p>这不等于已扫描并确认所有外部 Codex 客户端都已停止。</p></div> : [...attention.claims, ...attention.waiters].map((entry) => <div className="claim" key={entry.id}><strong>{entry.kind ?? "queued"}</strong><code>{entry.agent_id ?? entry.id}</code><span>{entry.access_mode} · {entry.owner_pid ? `PID ${entry.owner_pid}` : "尚未调用模型"}</span></div>)}</div></section>}
-      </div></>}
+      </>}</div></>}
       <footer className="page-footer"><span>TaskQuay</span><span>项目与会话管理</span></footer>
     </main>
     {folderDialog && <FolderRegistration api={api} initialPath={project?.root ?? ""} close={() => setFolderDialog(false)} registered={(id) => {
-      setFolderDialog(false); setProjectId(id); setTab("sessions"); setMessage("项目文件夹已登记。"); void refresh();
+      setFolderDialog(false); chooseProject(id); setTab("sessions"); setMessage("项目文件夹已登记。"); void refresh();
     }} />}
     {sessionDialog && project && <SessionRegistration api={api} projectId={projectId} projectRoot={project.root} close={() => setSessionDialog(false)} registered={() => {
       setSessionDialog(false); setMessage("所选会话已登记，原会话和历史用量保持不变。"); void refresh();

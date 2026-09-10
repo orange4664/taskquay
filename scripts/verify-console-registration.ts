@@ -65,6 +65,13 @@ try {
   await page.getByRole("button", { name: "进入任务台", exact: true }).click();
   await page.getByRole("heading", { name: "还没有登记的项目" }).waitFor();
   await screenshot("desktop-empty");
+  await page.getByRole("button", { name: "接入与使用", exact: true }).click();
+  await page.getByText("需要公网 HTTPS 入口", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "复制MCP 服务器地址" }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "复制首条试用指令" }).count(), 0);
+  await screenshot("desktop-guide-local");
+  await page.evaluate(() => { location.hash = ""; });
+  await page.getByRole("heading", { name: "还没有登记的项目" }).waitFor();
   await page.getByRole("button", { name: "添加文件夹", exact: true }).first().click();
   await page.getByLabel("项目文件夹", { exact: true }).fill(root);
   await page.getByRole("button", { name: "浏览文件夹", exact: true }).click();
@@ -170,11 +177,106 @@ try {
     await page.keyboard.press("Escape");
     await page.getByRole("dialog").waitFor({ state: "detached" });
   }
+  // An onboarding guide is useful before any real host account is connected.
+  config.publicBaseUrl = "https://taskquay.example:8443";
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole("button", { name: "接入与使用", exact: true }).click();
+  await page.getByRole("button", { name: "复制MCP 服务器地址" }).waitFor();
+  assert.equal(await page.getByLabel("MCP 服务器地址", { exact: true }).inputValue(), "https://taskquay.example:8443/mcp");
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.getByRole("button", { name: "复制MCP 服务器地址" }).click();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "https://taskquay.example:8443/mcp");
+  await page.getByRole("button", { name: "复制首条试用指令" }).click();
+  const prompt = await page.evaluate(() => navigator.clipboard.readText());
+  assert(prompt.includes(chosen)); assert(prompt.includes("不执行命令、不启动 Codex"));
+  assert.equal(await page.getByText("请在 ChatGPT 中确认", { exact: true }).count(), 1);
+  await screenshot("desktop-guide");
+  await page.reload();
+  await page.getByRole("heading", { name: "接入与使用", exact: true }).waitFor();
+  await page.getByRole("button", { name: "复制首条试用指令" }).waitFor();
+  await page.evaluate('Object.defineProperty(navigator.clipboard, "writeText", { configurable: true, value: () => Promise.reject(new Error("fixture clipboard denied")) })');
+  await page.getByRole("button", { name: "复制首条试用指令" }).click();
+  await page.getByText("浏览器未允许复制，已选中文本，可手动复制。", { exact: true }).waitFor();
+  assert.equal(await page.getByLabel("首条试用指令", { exact: true }).evaluate((element: HTMLTextAreaElement) => element.selectionEnd - element.selectionStart), prompt.length);
+  for (const width of [320, 390, 768, 1440, 1920]) {
+    await page.setViewportSize({ width, height: width < 600 ? 844 : 1000 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `guide at ${width}px`);
+    if (width === 390) await screenshot("mobile-guide");
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByLabel("搜索项目", { exact: true }).fill("missing-project");
+  assert.equal(await page.locator(".project-button").count(), 0);
+  await page.getByRole("button", { name: "清除搜索", exact: true }).click();
+  await page.locator(".project-button").filter({ hasText: "Selected project" }).click();
+  await page.getByRole("button", { name: "任务", exact: true }).click();
+  // Seed enough rows to expose the old first-page-only refresh bug.
+  const paginationSeed = new WorkLedger(config.stateDir);
+  const otherPath = join(chosen, "Another project"); mkdirSync(otherPath);
+  let otherId: string;
+  try {
+    for (let index = 0; index < 58; index++) {
+      const run = paginationSeed.begin({ root: chosen, workItemId: `page-${index}`, runKey: "pagination-qa", title: `分页任务 ${index}`,
+        origin: { entryPoint: "other_mcp", evidence: "server_entry" } });
+      paginationSeed.finish(run.id, { status: "completed", acceptance: "not_applicable", summary: "Synthetic pagination fixture", evidence: [] });
+    }
+    const other = paginationSeed.begin({ root: otherPath, workItemId: "other", runKey: "view-race", title: "另一个项目的独立任务", origin: { entryPoint: "other_mcp", evidence: "server_entry" } });
+    otherId = other.project_id;
+  } finally { paginationSeed.close(); }
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".task-title").length === 50);
+  await page.getByRole("button", { name: "加载更多", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".task-title").length === 61);
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector(".is-refreshing"));
+  assert.equal(await page.locator(".task-title").count(), 61);
+  // Wait for an actual scheduled second-page refresh, rather than invoking its implementation.
+  await page.waitForResponse((response: { url: () => string }) => response.url().includes("/runs?") && response.url().includes("offset=50"), { timeout: 20_000 });
+  assert.equal(await page.locator(".task-title").count(), 61, "scheduled refresh preserves expanded results");
+  await page.getByLabel("来源", { exact: true }).selectOption("chatgpt_mcp");
+  await page.getByRole("heading", { name: "没有符合条件的任务", exact: true }).waitFor();
+  await page.getByRole("button", { name: "查看全部任务", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".task-title").length === 50);
+  let releaseOther!: () => void;
+  const holdOther = new Promise<void>((resolve) => { releaseOther = resolve; });
+  const otherRoute = `**/projects/${otherId!}/runs?*`;
+  let otherHandled!: () => void;
+  const handledOther = new Promise<void>((resolve) => { otherHandled = resolve; });
+  await page.route(otherRoute, async (route: { continue: () => Promise<void> }) => { await holdOther; await route.continue(); otherHandled(); });
+  const otherRequest = page.waitForRequest(otherRoute);
+  await page.locator(".project-button").filter({ hasText: "Another project" }).click();
+  await otherRequest;
+  await page.getByText("正在读取项目数据…", { exact: true }).waitFor();
+  assert.equal(await page.locator(".task-title").count(), 0, "a new project must never render old rows");
+  await page.locator(".project-button").filter({ hasText: "Selected project" }).click();
+  releaseOther(); await handledOther; await page.unroute(otherRoute);
+  await page.waitForFunction(() => document.querySelectorAll(".task-title").length === 50);
+  assert.equal(await page.getByRole("button", { name: "另一个项目的独立任务", exact: true }).count(), 0);
+  await page.route("**/console/api/projects", (route: { abort: () => Promise<void> }) => route.abort());
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await page.getByRole("alert").filter({ hasText: "当前显示上次成功读取的数据" }).waitFor();
+  assert.equal(await page.locator(".task-title").count(), 50);
+  await screenshot("desktop-offline");
+  await page.unroute("**/console/api/projects");
+  await page.getByRole("button", { name: "重试", exact: true }).click();
+  await page.getByRole("alert").waitFor({ state: "detached" });
+  // Session expiry clears cached private views before another login is accepted.
+  await page.getByLabel("搜索项目", { exact: true }).fill("Selected");
+  await page.route("**/console/api/projects", (route: { fulfill: (response: unknown) => Promise<void> }) => route.fulfill({ status: 401, contentType: "application/json", body: "{}" }));
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await page.getByLabel("DevSpace 授权口令").waitFor();
+  assert.equal(await page.locator(".task-title, .project-button, dialog").count(), 0);
+  await page.unroute("**/console/api/projects");
+  await page.getByLabel("DevSpace 授权口令").fill("fixture-password-for-browser-qa-only");
+  await page.getByRole("button", { name: "进入任务台", exact: true }).click();
+  await page.getByLabel("搜索项目", { exact: true }).waitFor();
+  assert.equal(await page.getByLabel("搜索项目", { exact: true }).inputValue(), "");
+  await page.getByRole("button", { name: "退出登录", exact: true }).click();
+  await page.getByLabel("DevSpace 授权口令").waitFor();
   assert.deepEqual(errors, []);
   assert.deepEqual(foreignRequests, []);
   const result = { checkedAt: new Date().toISOString(), status: "passed", viewports: ["1440x1000", "390x844", "320x740", "768x1024", "1920x1080"],
     folderBrowser: "real filesystem", catalogReads, revalidations,
-    assertions: ["login", "empty state", "folder consent", "pagination", "search", "explicit import", "idempotence", "archived filter", "remove reference", "persistence", "XSS escaping", "no overflow", "no browser errors", "all project views", "task details", "Escape and focus restoration", "dialog motion", "reduced motion", "local font", "no remote requests"] };
+    assertions: ["login", "empty state", "folder consent", "pagination", "search", "explicit import", "idempotence", "archived filter", "remove reference", "persistence", "XSS escaping", "no overflow", "no browser errors", "all project views", "task details", "Escape and focus restoration", "dialog motion", "reduced motion", "local font", "no remote requests", "onboarding before projects", "HTTPS configuration only", "copy and fallback", "guide deep link", "project search", "pagination survives polling", "stale project response", "offline recovery", "session expiry cleanup"] };
   writeFileSync(join(output, "result.json"), JSON.stringify(result, null, 2) + "\n");
   console.log(JSON.stringify(result));
 } catch (error) {

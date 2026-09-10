@@ -54,6 +54,21 @@ button.icon-command, button.icon-button { display: inline-grid; place-items: cen
 .sidebar-heading { display: flex; justify-content: space-between; padding: 0 8px 12px; color: var(--muted); font-size: 12px; }
 .sidebar-heading span { font-variant-numeric: tabular-nums; }
 .sidebar .add-project { justify-content: flex-start; width: 100%; margin-bottom: 16px; }
+.sidebar .guide-nav { width: 100%; justify-content: flex-start; margin-bottom: 28px; background: transparent; border-color: transparent; }
+.sidebar .guide-nav.selected { background: var(--hover); border-color: var(--line); }
+.project-search { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--muted); }
+.project-search input:not([type=checkbox]) { width: 100%; padding-inline: 0; border: 0; background: transparent; min-height: 38px; font-size: 12px; }
+.project-search:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
+.project-search input:focus-visible { outline: none; }
+.project-search-empty { font-size: 12px; color: var(--muted); padding-inline: 8px; }
+.project-search-empty button { display: block; margin-top: 8px; font-size: 12px; }
+.offline-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warning); flex-shrink: 0; }
+.view-loading { padding: 64px 20px; text-align: center; border-block: 1px solid var(--line); color: var(--muted); }
+.login-help { margin-top: 24px; color: var(--muted); font-size: 12px; }
+.login-help summary { cursor: pointer; padding: 4px 0; }
+.login-help p { line-height: 1.8; }
+.empty > button { margin: 20px 4px 0; }
+.filters .filter-reset { min-height: 36px; font-size: 12px; padding: 6px 8px; }
 .sidebar nav { overflow-y: auto; min-height: 0; }
 button.project-button { display: flex; align-items: center; gap: 10px; width: 100%; border: 1px solid transparent; padding: 10px 8px; margin: 0 0 4px; background: transparent; text-align: left; justify-content: flex-start; }
 button.project-button:hover:not(:disabled) { background: #ededf0; border-color: transparent; }
@@ -233,6 +248,10 @@ body:has(.modal[open]) { overflow: hidden; }
   .brand { margin: 0; font-size: 18px; }
   .brand small { font-size: 11px; }
   .sidebar .add-project { width: auto; margin: 0; min-height: 44px; font-size: 12px; }
+  .sidebar .guide-nav { grid-column: 1/-1; grid-row: 2; width: auto; margin: 0; min-height: 44px; border-color: var(--line); }
+  .sidebar .project-search { grid-column: 1/-1; margin: 0; }
+  .sidebar .project-search input { min-height: 44px; font-size: 14px; }
+  .sidebar .project-search-empty { grid-column: 1/-1; margin: 0; }
   .sidebar-heading, .sidebar-bottom { display: none; }
   .sidebar nav { grid-column: 1/-1; display: flex; gap: 8px; overflow-x: auto; padding: 3px; margin: -3px; }
   button.project-button { flex: 0 0 auto; width: auto; max-width: 260px; margin: 0; min-height: 44px; padding: 8px 12px; }

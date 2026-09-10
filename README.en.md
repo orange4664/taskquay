@@ -6,6 +6,8 @@
 
 This maintenance fork of [wrfgup/taskquay](https://github.com/wrfgup/taskquay) adds local GUI folder browsing, explicit registration of existing Codex sessions, and security fixes. In `/console/`, choose **添加文件夹**, then open **Codex 会话 → 登记已有会话** in the project. See [registration, security boundaries, and upgrades](docs/local-registration.md).
 
+The **接入与使用** (Setup and usage) page at `/console/#guide` shows the configured MCP URL, OAuth instructions, and a copyable read-only first task. It never creates a tunnel or connects a ChatGPT account. URL configuration and actual host authorization are reported separately. The console also supports project search, preserves expanded task pages during refresh, and offers retry with clearly marked cached results when the service is unavailable.
+
 TaskQuay is a self-hosted execution and project-management layer for MCP-capable AI hosts. Let ChatGPT or another host inspect your workspace directly, delegate bounded work to Codex when useful, and return a result backed by changes, checks, and a task-level usage receipt.
 
 It is an **independent fork of [Waishnav/DevSpace](https://github.com/Waishnav/devspace)**, not an official OpenAI, Anthropic, or upstream DevSpace product. The upstream implementation and its MIT copyright notice are retained. This fork focuses on host-first context gathering, controlled agent concurrency, reusable sessions, observable work, and honest Codex usage reporting.

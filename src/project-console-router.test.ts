@@ -36,12 +36,19 @@ test("console authentication, source scopes, CSRF and session expiry protect all
   });
   const page = await request("/"); assert.equal(page.status, 200); assert.match(await page.text(), /fixture console/);
   assert.equal((await request("/api/projects")).status, 401);
+  assert.equal((await request("/api/connection")).status, 401);
   assert.equal((await request("/api/login", { method: "POST", headers: { "Content-Type": "application/json", Origin: "https://evil.example" }, body: JSON.stringify({ password: "fixture-owner-token-not-real" }) })).status, 403);
   const login = await request("/api/login", { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ password: "fixture-owner-token-not-real" }) });
   assert.equal(login.status, 200); const body = await login.json() as { csrf: string };
   const header = login.headers.get("set-cookie")!; assert.match(header, /HttpOnly/); assert.match(header, /SameSite=Strict/);
   assert(!header.includes("fixture-owner-token")); const cookie = header.split(";")[0]!;
   const authenticated = { Cookie: cookie, Origin: base, "X-DevSpace-CSRF": body.csrf, "Content-Type": "application/json" };
+  const connection = await request("/api/connection", { headers: { Cookie: cookie } });
+  assert.equal(connection.status, 200);
+  assert.equal(connection.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await connection.json(), { mcpUrl: "https://controlled.example/mcp", urlStatus: "https", consoleLocalOnly: true });
+  assert.equal((await request("/api/connection", { headers: { Cookie: cookie, Origin: "https://evil.example" } })).status, 403);
+  assert.equal((await request("/api/connection", { headers: { Cookie: cookie, "X-Forwarded-For": "203.0.113.1" } })).status, 403);
   const projects = await request("/api/projects", { headers: { Cookie: cookie } }); assert.equal(projects.status, 200);
   const list = await projects.json() as { projects: { id: string }[] }; assert.equal(list.projects.length, 1); assert.equal(list.projects[0]!.id, run.project_id);
   assert.equal(providerCreated, 0, "Page refresh must not start a provider");
@@ -53,5 +60,6 @@ test("console authentication, source scopes, CSRF and session expiry protect all
   assert.equal(await rawStatus({ Cookie: cookie, Host: "evil.example" }), 403);
   assert.equal(await rawStatus({ Cookie: cookie, Host: "controlled.example", "X-Forwarded-Proto": "https" }), 403);
   time += 301000; assert.equal((await request("/api/session", { headers: { Cookie: cookie } })).status, 401);
+  assert.equal((await request("/api/connection", { headers: { Cookie: cookie } })).status, 401);
   assert.equal((await request("/api/logout", { method: "POST", headers: authenticated, body: "{}" })).status, 401);
 });

@@ -8,6 +8,7 @@ import { ConsoleRegistration } from "./console-registration.js";
 import { importedSessions } from "./console-session-references.js";
 import type { SessionCatalog } from "./codex-session-catalog.js";
 import { RegistrationError } from "./console-registration-error.js";
+import { consoleConnection } from "./console-connection.js";
 import { WorkLedger } from "./work-ledger.js";
 import { ProjectArchive } from "./project-archive.js";
 import { CodexThreadControl, type ThreadControl } from "./codex-thread-control.js";
@@ -97,6 +98,7 @@ export function createProjectConsoleRouter(config: ServerConfig, options: {
     setCookie(req, res, token, settings.sessionTtlSeconds); res.json({ authenticated: true, csrf, localRegistration: directLocal(req) });
   });
   router.get("/api/session", (req, res) => res.json({ authenticated: true, csrf: res.locals.consoleSession.session.csrf, remoteEnabled: settings.allowRemote, localRegistration: directLocal(req) }));
+  router.get("/api/connection", (_req, res) => res.json(consoleConnection(config)));
   router.post("/api/logout", (req, res) => { registration.forget(res.locals.consoleSession.key); sessions.delete(res.locals.consoleSession.key); setCookie(req, res, "", 0); res.json({ authenticated: false }); });
 
   const localAction = (action: (req: Request, owner: string) => Promise<unknown>) => async (req: Request, res: Response) => {

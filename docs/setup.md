@@ -6,6 +6,11 @@ For this fork, start with the [Chinese default README](../README.md),
 [English README](../README.en.md), or the [ChatGPT Server URL / official Tunnel walkthrough](chatgpt-mcp-setup.zh-CN.md).
 The commands below run this source checkout after installation/build, not an upstream npm distribution.
 
+After starting the server, `/console/#guide` provides an authenticated setup guide,
+the configured MCP URL, and a read-only first prompt for the selected project.
+It displays configuration only; it does not create a tunnel, connect an account,
+or claim that ChatGPT can reach the server.
+
 ## Requirements
 
 - Node `>=22.19 <27`
