@@ -48,7 +48,7 @@
 
 发布只哈希明确选择的公开文件：在原 workspace 的 realpath scope 验证、拒绝路径穿越/越界 junction 和明显的配置/密钥路径、核对文件哈希与 source manifest、拒绝未知 schema/version/state。只读取显式选中的文件，不跟随文件内部引用；不调用 shell、模型或部署。`passed` 表示主控显式声明已完成验证并通过文件哈希绑定，不代表 DevSpace 独立执行过 Android 安装/E2E。`expectedSourceHash` 让消费者在不读源码时发现过期交付；未提供则为 unchecked，不是当前部署通过。摘要中的 verifiedAt 是发布时刻，不保证可变路径如今仍是相同内容。
 
-发布继续获取普通 cooperative read claim，**活跃 writer 时新发布会被拒绝**；没有借用 claimId、偷取 claim 或自动打开 worker checkout。只读 summary 从 ledger 恢复旧 publication，在 writer 活跃、甚至原源码/产物已删除时也可读。本轮实现的是 host 验证后发布和跨阶段的安全读侧，不是 B 所述“活跃写 worker 主动发布”的完整生产者身份契约。后者及特定 handoff 字段验证仍待单独设计，不把局部实现冒充完成。
+发布继续获取普通 cooperative read claim，**活跃 writer 时新发布会被拒绝**；没有借用 claimId、偷取 claim 或自动打开 worker checkout。只读 summary 从 ledger 恢复旧 publication，在 writer 活跃、甚至原源码/产物已删除时也可读。本轮实现的是 host 验证后发布和跨阶段的安全读侧，不是 B 所述“活跃写 worker 主动发布”的完整生产者身份契约。后者及特定 handoff 字段验证仍待单独设计，上述两项仍未完成。
 
 ## 验证及源码对应
 
@@ -64,7 +64,7 @@
 
 ## 未实现与后续维护边界
 
-完整 worker 主动发布身份、项目特定 handoff validator、runtime capabilities/version fingerprint、shell 选择及后台服务 API 均未实现。主控仍须正确选择已有工具、复用 workspace/run/revision、核对 acceptance 与历史产物、维护准确说明；这些不能甩给工具。
+完整 worker 主动发布身份、项目特定 handoff validator、runtime capabilities/version fingerprint、shell 选择及后台服务 API 均未实现。主控仍须正确选择已有工具、复用 workspace/run/revision、核对 acceptance 与历史产物、维护准确说明；这些工作仍由主控负责。
 
 本轮未调用任何原先被拒绝的维护脚本，也没有改用包装/另一 shell 重做。未停止/替换 MCP、agentd、Desktop、隧道或任何云任务，没有删除 claim、自动强退任务或重放部署/迁移。只有所有相关任务停止后，主控通过正常、已有授权且未被阻断的维护机制，才能处理安装与实际 host schema 验证。此次交付止于源码与独立候选。
 
@@ -86,6 +86,6 @@
 
 快照 `releases/trajectory-audit-20260907/parent-conversation-metadata.json`，SHA256 `59b53ab69ec626ebeb309b9db39cb79a462991cfee4ec150fa42cb6127a022c7`。各操作duration可能重叠，不能求和当总等待时间；脚本不读取prompt、模型正文、私有思维、凭据或业务数据，零推理。
 
-本轮还暴露了**父子任务归属断裂**：worker内部重新begin了另一个conversation，并试图在自己仍持有写claim时finish，既无法代表父任务用量，又被正确的在途保护拒绝。应由主控持有唯一父run、worker回报自身execution结果，不为记账再次创建互不关联的顶层run。自动传播已验证父run/执行身份是下一项需要实现的工具能力；本轮仅完成精确锚点检查与纠错，没有伪称已实现安全的跨进程继承。
+本轮还暴露了**父子任务归属断裂**：worker内部重新begin了另一个conversation，并试图在自己仍持有写claim时finish，既无法代表父任务用量，又被正确的在途保护拒绝。应由主控持有唯一父run、worker回报自身execution结果，不为记账再次创建互不关联的顶层run。自动传播已验证父run/执行身份是下一项需要实现的工具能力；本轮仅完成精确锚点检查与纠错，跨进程继承尚未实现。
 
 worker停止后，主控尝试按其返回的子run通过当前工作区原生结项，工具返回 `WORK_STATE: Work run is outside this workspace scope`。未更换工作区或改账本绕过；该子run的归属修复未执行，父run仍按自身scope正常结项。该事实再次说明不能将子工具会话的局部run自动当作主控父run。

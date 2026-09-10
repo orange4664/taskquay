@@ -35,7 +35,7 @@ export function FolderRegistration({ api, initialPath, close, registered }: {
     {listing && <div className="folder-browser">
       <div className="folder-browser-heading"><button className="icon-command" title="上一级目录" aria-label="上一级目录" disabled={busy || !listing.parent} onClick={() => void browse(listing.parent!)}><ConsoleIcon icon={ArrowUp} /></button><code>{listing.path}</code></div>
       <div className="folder-browser-list">{listing.entries.length ? listing.entries.map((entry) => <button key={entry.path} aria-label={`打开文件夹 ${entry.name}`} disabled={busy} onClick={() => void browse(entry.path)}><ConsoleIcon icon={FolderOpen} /><span>{entry.name}</span><ConsoleIcon icon={ChevronRight} /></button>) : <p className="subtle">没有可见的子文件夹</p>}</div>
-      {listing.truncated && <p className="subtle">此目录较大，未列出全部文件夹。可输入更具体的路径。</p>}
+      {listing.truncated && <p className="subtle">文件夹较多，列表未显示全部内容。请直接输入要访问的路径。</p>}
       <div className="dialog-actions"><button className="primary" disabled={busy} onClick={() => void action(async () => show((await api<{ preview: DirectoryPreview }>("folders/preview", { path: listing.path })).preview))}>选择此文件夹</button></div>
     </div>}
     {preview && <div className="folder-preview">
@@ -47,7 +47,7 @@ export function FolderRegistration({ api, initialPath, close, registered }: {
         onClick={() => void action(async () => { const result = await api<{ project: { id: string } }>("folders/register", { ticket: preview.ticket, name, authorize }); registered(result.project.id); })}>
         {busy ? "正在登记…" : preview.requiresAuthorization ? "授权并登记" : "登记文件夹"}</button></div>
     </div>}
-    {busy && !preview && <p role="status" className="subtle">正在等待目录选择或检查…</p>}
+    {busy && !preview && <p role="status" className="subtle">正在读取目录…</p>}
   </Modal>;
 }
 
@@ -81,7 +81,7 @@ export function SessionRegistration({ api, projectId, projectRoot, close, regist
   };
   return <Modal title="登记已有 Codex 会话" close={close} locked={busy}>
     <div className="selection-path"><ConsoleIcon icon={FolderOpen} /><code>{projectRoot}</code></div>
-    <p className="catalog-guidance">选择要在此项目中显示的会话，仅登记标题等索引信息。每次最多选择 50 个；更换搜索或归档状态会清空本次选择。</p>
+    <p className="catalog-guidance">勾选要在项目中显示的会话，每次最多 50 个。这里只保存标题等索引信息。重新搜索或切换归档状态会清空已选项。</p>
     <form className="catalog-filters" onSubmit={(event) => { event.preventDefault(); void load(); }}>
       <label className="catalog-search"><span className="sr-only">搜索会话</span><input value={search} maxLength={120} placeholder="搜索会话" disabled={busy} onChange={(event) => setSearch(event.target.value)} /></label>
       <button type="submit" className="icon-command" title="搜索会话" aria-label="搜索会话" disabled={busy}><ConsoleIcon icon={Search} /></button>
@@ -97,7 +97,7 @@ export function SessionRegistration({ api, projectId, projectRoot, close, regist
       </label>)}
     </div>
     {page?.nextCursor && <button className="load-more" disabled={busy} onClick={() => void load(true)}>加载更多</button>}
-    <div className="import-summary"><span>已选择 {selection.size} 个会话</span><span>历史用量不计入任务账本</span></div>
+    <div className="import-summary"><span>已选择 {selection.size} 个会话</span><span>历史用量不计入任务统计</span></div>
     <div className="dialog-actions"><button onClick={close} disabled={busy}>取消</button><button className="primary" disabled={busy || !selection.size} onClick={() => void submit()}><ConsoleIcon icon={Download} />{busy ? "正在核对…" : `登记 ${selection.size} 个会话`}</button></div>
   </Modal>;
 }
@@ -106,7 +106,7 @@ export function ImportedSessions({ entries, busy, canManage, remove }: {
   entries: ImportedSession[]; busy: boolean; canManage: boolean; remove: (id: string) => void;
 }) {
   return <section className="imported-sessions"><div className="panel-title"><h2>手动登记的会话</h2><span>{entries.length} 个</span></div>
-    {!entries.length ? <div className="empty"><h3>尚未登记已有会话</h3><p>{canManage ? "点击上方“登记已有会话”，选择要显示的 Codex 会话。" : "请在运行服务的电脑上打开本机管理台进行登记。"}</p></div> : <div className="imported-list">{entries.map((entry) => <article className="imported-row" key={entry.id}>
+    {!entries.length ? <div className="empty"><h3>尚未登记已有会话</h3><p>{canManage ? "点击上方“登记已有会话”，选择要显示的 Codex 会话。" : "请在运行服务的电脑上打开任务台，登记已有会话。"}</p></div> : <div className="imported-list">{entries.map((entry) => <article className="imported-row" key={entry.id}>
       <div><strong className="thread-title">{entry.title}</strong><div className="source-line">手动登记 · {entry.source} · 历史用量未知</div><code>{entry.threadId}</code></div>
       <div className="imported-status"><span className="badge">{entry.archived ? "已归档" : statuses[entry.status] ?? entry.status}</span><small>{date(entry.updatedAt)}</small></div>
       {canManage && <button className="icon-command" title="移除登记，保留原会话" aria-label={`移除登记 ${entry.title}`} disabled={busy} onClick={() => remove(entry.id)}><ConsoleIcon icon={Trash2} /></button>}

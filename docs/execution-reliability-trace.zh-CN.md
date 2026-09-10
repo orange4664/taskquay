@@ -30,13 +30,13 @@
 1. **DevSpace 缺陷，有代码和回归证据。** observe 原 revision 包含 `record.updatedAt` 和整份 completion receipt。usage 触发 receipt revision 变化，即使任务仍 running，也令携带 knownRevision 的观察提前返回并重复传输完整 receipt。原 running 输出只有 id/status，主机无法判断在构建、等资源还是没有新活动。read 在 workspace resolve 后把 `~` 当成普通目录，绕过了本应识别 advertised skill 的失败分支；capture 则只支持源码相对路径。
 2. **主机调度缺口，有受管终态但没有完整主机日志。** 原 execution 和 agentd 均完成，run 验收却仍 pending。主机应在终态取回结果、核对证据并显式结算或续接。不能让 provider completion 自动替主机作验收；本次没有替用户完成 yaxian 发布。
 3. **MCP 外部发现回圈，归属证据不足。** `list_resources` 不等同于 agent_task observe，也不是 DevSpace 执行队列。现有本地账本没有该回圈的 caller/request 关联，无法断言每次来自主机还是 provider 的 MCP 客户端。本次没有全局禁用 MCP、重写发现 API 或修改 tunnel；精确归属需主控提供已脱敏的请求 trace。
-4. **排队冲突是正确的互斥结果，但反馈不够可行动。** 审核等待独占写 claim，5 分钟后在模型调用之前失败。不能为了让审核“成功启动”而放松锁、抢 claim 或自动 replay 写入。
+4. **排队冲突是正确的互斥结果，但反馈未提供明确的下一步操作。** 审核等待独占写 claim，5 分钟后在模型调用之前失败。不能为了让审核“成功启动”而放松锁、抢 claim 或自动 replay 写入。
 
 ## 实际改动
 
 - `agent_task observe` 分离 taskRevision / progressRevision，组合为兼容的 revision。用量、receiptRevision、updatedAt、elapsed/活动年龄都不参与 revision。保持 20 秒默认、25 秒上限和 500 ms 内部读取间隔，没有提高 timeout。每次读取仍先验证 workspace scope。
 - 普通观察只返回有界控制信息；不再每轮构造、传输整份 receipt。终态即使 unchanged 也保留 responseAvailable、恢复说明与 nextAction。`includeResponse:true` 可以重复取得结果和完整 receipt，随后 nextAction 是主控 review_result，避免让主机机械地无限重取。完成和 acceptance 分离，绝不自动通过验收。
-- 复用 Codex item started/completed 事件，经过固定词汇分类后进入现有 runtime callback/store。只保存单份 progress JSON：阶段、构建/测试/命令等类别、起始/准入/最后活动时间。相同类别的心跳最多每秒持久化一次；不保存命令、stdout、工具参数或思维。早于 turn/start 应答的活动使用最多 32 条脱敏缓冲，绑定 turn 后再发出；旧 turn 活动被丢弃。进度回调失败不能失败或重放已经发起的执行。
+- 复用 Codex item started/completed 事件，经过固定词汇分类后进入现有 runtime callback/store。只保存单份 progress JSON：阶段、构建/测试/命令等类别、起始/准入/最后活动时间。相同类别的心跳最多每秒持久化一次；不保存命令、stdout、工具参数或思维。早于 turn/start 应答的活动使用最多 32 条脱敏缓冲，绑定 turn 后再发出；旧 turn 活动被丢弃。进度回调失败不能将已经发起的执行判为失败，也不能触发重放。
 - migration 12 增加可空 progress 列。store 重开与 daemon record 解码均有回归证据；旧行未知值保持未知。已有中断恢复仍把 active 标为需要核对的失败状态，不自动恢复工作、不清 claim。恢复的是**最后观测证据**，不是保证进程仍在执行。
 - busy continue/admission 冲突返回本次 requestAccepted=false、providerInvoked=false、owner scope、waiting 和 nextAction。只给同 workspace 可授权 owner 的 agentId；其他范围只给 claim 检查动作。queued observe 可取得过期时间、等待原因和最多 8 个 blocker 摘要，跨 workspace 不暴露 root、agentId、资源名或 PID。不改变 admission/queue 的写锁规则。
 - read 入口先展开 home 路径，再按工作区或已加载技能 allowlist 决定 read roots；实际读取前检查 realpath。capture 使用同一解析，并保持文件大小、总行数、字节预算、二进制拒绝和 symlink escape 检查。外部技能返回阅读证据但不进入仅接受源码相对路径的 delegation refs。
@@ -60,7 +60,7 @@
 验证环境：Windows、Node 24.14.1；所有测试使用 fixture，不调用真实付费模型。
 
 - 最终相关测试：**61 项，58 通过、0 失败、3 跳过**，44,541.7592 ms。3 个跳过是既有 Windows 平台跳过；新增 junction escape 测试实际执行并通过。
-- 完整串行 `pnpm test` 执行一次：**194 项，185 通过、4 失败、5 跳过**，188,238.204 ms。其中本次新增 migration 使固定 migration 清单断言失败，已更新并在最终相关测试中通过；另外 3 个 workspace-conversation 测试在**纯 f3e4baa 独立 staging** 同样 0 通过 / 3 失败，首错均为 `Directory does not exist. Repeat open_workspace with createDirectory=true.`，没有改动它们。未把定向修复结果伪称为“全量全绿”。
+- 完整串行 `pnpm test` 执行一次：**194 项，185 通过、4 失败、5 跳过**，188,238.204 ms。其中本次新增 migration 使固定 migration 清单断言失败，已更新并在最终相关测试中通过；另外 3 个 workspace-conversation 测试在**纯 f3e4baa 独立 staging** 同样 0 通过 / 3 失败，首错均为 `Directory does not exist. Repeat open_workspace with createDirectory=true.`，没有改动它们。全量套件仍保留上述失败结果。
 - `pnpm typecheck` 及最终 `tsc --noEmit` 通过；`git diff --check` 通过。
 - 从 HEAD 取运行必需文件、只叠加本次源码的隔离 staging：TypeScript build、Vite build、**1 个编译后 MCP smoke** 通过。smoke 检查 host 收到的 schema、终态重复取回和同目录 agentd 入口，providerInvocations=0。staging 不包含 8 个保护文件的未提交版本。
 - 初次 fixture 因缺少 managed thread baseline 而收到未知用量，补齐 fixture 后通过；初次 queue fixture 清理顺序导致临时 SQLite EPERM，修正关闭顺序后通过。初次全仓库 tar 在已有中文图片文件名处报错，最终另建 runtime-only staging 成功；没有用损坏的初次 staging 作启用依据。
@@ -104,6 +104,6 @@ node scripts/verify-execution-reliability.mjs releases/execution-reliability-202
 
 第一次维护因 daemon 已自行停止而未被旧就绪条件接受，原服务未受影响。随后检查到 daemon PID 文件、ownership lock 和旧进程均不存在，并再次核对执行 claims、waiters 及 active agent 数均为 0，才开始切换。2026-09-07 **02:01:49 UTC / 10:01:49 UTC+8**，原监听进程 3248 已替换为 35620；保持 `127.0.0.1:7676`、现有配置、OAuth 状态、根目录权限和隧道不变。原 dist 和一致 SQLite 备份保留于 `releases/activation-cbd4baf-20260907-020132/`，安装文件与已验证 staging 哈希一致，healthz 通过，无回滚发生。没有终止活跃任务、清除锁或执行新的模型请求。
 
-重连后实际通过原生 MCP（不是只运行 CLI）的三个回验：旧终态 observation 返回 `taskRevision`、`progressRevision`、`nextAction`，以相同 revision 显式请求仍能取回完成回执；广告过的 `~/.codex/skills/android-cli/SKILL.md` 通过 `read` 成功读取；缺少必要字段的 start 返回准确 `missingFields` 且 `requestAccepted=false / providerInvoked=false`。历史错误和缺失活动时间没有被改写或伪造；新错误分类对未来返回与受测保存格式生效。
+重连后实际通过原生 MCP（不是只运行 CLI）的三个回验：旧终态 observation 返回 `taskRevision`、`progressRevision`、`nextAction`，以相同 revision 显式请求仍能取回完成回执；工具说明中列出的 `~/.codex/skills/android-cli/SKILL.md` 通过 `read` 成功读取；缺少必要字段的 start 返回准确 `missingFields` 且 `requestAccepted=false / providerInvoked=false`。历史错误和缺失活动时间没有被改写或伪造；新错误分类对未来返回与受测保存格式生效。
 
-因此本文早期“未替换服务”描述的是验证阶段，不再代表最终状态。最终状态为：修复已提交、干净构建已验证、服务已启用且完成原生 MCP 回验。仍不宣称此次合成基准就是真实长任务的耗时或 token 节省比例，也不把三个已知基线测试失败归为通过。
+以上为后续启用记录：修复已提交，独立构建通过，服务已启用并完成原生 MCP 回验。文前“未替换服务”仅描述早期验证阶段。合成基准未测量真实长任务的耗时或 Token 节省比例，三个已知基线测试失败也仍然保留。

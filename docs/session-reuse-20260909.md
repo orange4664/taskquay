@@ -1,4 +1,4 @@
-本轮针对截图中 ticket-automation 项目、run 短标识 `b889f9` 排查。结果不支持“provider session ID 丢失”的判断，但确认了标题身份选择和终态复用两个缺陷，并已修复源码。
+本文记录 2026-09-09 的会话复用修复。排查对象为截图中的 ticket-automation 项目，run 短标识为 `b889f9`。结果不支持“provider session ID 丢失”的判断，但确认了标题身份选择和终态复用两个缺陷，并已修复源码。
 
 只读诊断入口为 `scripts/inspect-session-reuse.ts`，要求显式数据库路径和已观察的六位 run 后缀，后缀匹配不唯一时拒绝继续。使用 better-sqlite3 readonly/fileMustExist 和读事务，最多 100 个 execution；仅投影身份、时间、状态和 key 数量，身份全部哈希。不读取 prompt、title、response、任意 evidence、命令或配置。真实数据库未迁移、未写入。
 
@@ -14,7 +14,7 @@ Git blame 定位：`a3a63ab` 给所有子上下文使用 `sessionTitle(run.id)`�
 - 同 context 的显式新任务可以复用 error/stopped 且保存着 provider session ID 的记录，沿正常 provider、claim、scope、reconciliation 检查继续，不通过新建 thread 绕过失败。
 - 重复 taskKey 仍返回幂等回执；活跃上下文继续拒绝冲突；freshContext、预算和 workspace 隔离不变。不自动重放旧 prompt，不扫描其他项目挑选会话。
 
-新增 3 个回归先在旧实现上失败：error/stopped 恢复各一例（单会话预算下误报新会话超限），以及相同 run 的独立会话标题碰撞。修复后业务断言通过；第二轮发现测试新增 ledger 句柄关闭晚于 Windows 目录清理的 EPERM，改为短生命周期句柄后修正。最终聚焦 6 文件、30/30 通过，覆盖 thread ID 传入、同 context 保持 agent、重复 start 不再次调用、独立 context 不混用及八位标题的幂等规范化。
+新增 3 个回归先在旧实现上失败：error/stopped 恢复各一例（单会话预算下误报新会话超限），以及相同 run 的独立会话标题碰撞。修复后业务断言通过；第二轮因新增的 ledger 句柄关闭过晚，Windows 清理目录时出现 EPERM；缩短句柄生命周期后修复。最终聚焦 6 文件、30/30 通过，覆盖 thread ID 传入、同 context 保持 agent、重复 start 不再次调用、独立 context 不混用及八位标题的幂等规范化。
 
 初始红灯回执：`releases/test-receipts/2026-09-08T16-28-17-434Z-6ee05dbe-19b4-4493-ac18-02e3a7190214.json`；最终聚焦回执：`releases/test-receipts/2026-09-08T16-30-26-838Z-8c44ab72-e778-428a-88f2-9f14011e7cf2.json`。
 

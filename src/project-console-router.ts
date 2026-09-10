@@ -56,7 +56,7 @@ export function createProjectConsoleRouter(config: ServerConfig, options: {
   router.use((req, res, next) => {
     if (!settings.enabled) { res.sendStatus(404); return; }
     const origin = expectedOrigin(req);
-    if (!origin) { res.status(403).json({ code: "CONSOLE_ACCESS", message: "管理台默认仅允许本机访问；远程入口需明确启用 HTTPS。" }); return; }
+    if (!origin) { res.status(403).json({ code: "CONSOLE_ACCESS", message: "任务台默认仅限本机访问。远程访问需单独开启，并使用 HTTPS。" }); return; }
     if (req.headers.origin && req.headers.origin !== origin) { res.sendStatus(403); return; }
     res.locals.consoleOrigin = origin;
     res.setHeader("Cache-Control", "no-store");
@@ -145,7 +145,7 @@ export function createProjectConsoleRouter(config: ServerConfig, options: {
       const projectId = stringParam(req.params.projectId);
       if (projectId) await assertConsoleAllowedPath(ledger.getProject(projectId).root, config.allowedRoots);
       res.json(await fn(req, ledger));
-    } catch { res.status(409).json({ code: "CONSOLE_OPERATION_REJECTED", message: "请求未通过项目、状态或输入校验。刷新后查看任务状态；不会自动重放归档。" }); }
+    } catch { res.status(409).json({ code: "CONSOLE_OPERATION_REJECTED", message: "项目、任务状态或输入内容未通过检查。请刷新后核对任务状态；归档操作不会自动重试。" }); }
     finally { ledger.close(); }
   };
   router.get("/api/projects", withLedger(async (_req, ledger) => {

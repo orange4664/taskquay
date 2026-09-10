@@ -61,7 +61,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await screenshot("mobile-login");
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByLabel("DevSpace 授权口令").fill("fixture-password-for-browser-qa-only");
+  await page.getByLabel("登录口令").fill("fixture-password-for-browser-qa-only");
   await page.getByRole("button", { name: "进入任务台", exact: true }).click();
   await page.getByRole("heading", { name: "还没有登记的项目" }).waitFor();
   await screenshot("desktop-empty");
@@ -104,7 +104,7 @@ try {
   await page.getByRole("dialog").waitFor({ state: "detached" });
   await page.waitForFunction(() => document.activeElement?.classList.contains("task-title"));
   assert.equal(await page.getByRole("button", { name: titles[0], exact: true }).evaluate((element: Element) => element === document.activeElement), true);
-  for (const [name, heading, file] of [["用量", "逐任务用量", "usage"], ["需处理项", "执行占用与等待", "attention"]]) {
+  for (const [name, heading, file] of [["用量", "逐任务用量", "usage"], ["需处理项", "运行占用与排队", "attention"]]) {
     await page.getByRole("button", { name, exact: true }).click();
     await page.getByRole("heading", { name: heading, exact: true }).waitFor();
     await screenshot(`desktop-${file}`);
@@ -196,7 +196,7 @@ try {
   await page.getByRole("button", { name: "复制首条试用指令" }).waitFor();
   await page.evaluate('Object.defineProperty(navigator.clipboard, "writeText", { configurable: true, value: () => Promise.reject(new Error("fixture clipboard denied")) })');
   await page.getByRole("button", { name: "复制首条试用指令" }).click();
-  await page.getByText("浏览器未允许复制，已选中文本，可手动复制。", { exact: true }).waitFor();
+  await page.getByText("无法自动复制，文本已选中，请手动复制。", { exact: true }).waitFor();
   assert.equal(await page.getByLabel("首条试用指令", { exact: true }).evaluate((element: HTMLTextAreaElement) => element.selectionEnd - element.selectionStart), prompt.length);
   for (const width of [320, 390, 768, 1440, 1920]) {
     await page.setViewportSize({ width, height: width < 600 ? 844 : 1000 });
@@ -263,15 +263,15 @@ try {
   await page.getByLabel("搜索项目", { exact: true }).fill("Selected");
   await page.route("**/console/api/projects", (route: { fulfill: (response: unknown) => Promise<void> }) => route.fulfill({ status: 401, contentType: "application/json", body: "{}" }));
   await page.getByRole("button", { name: "刷新", exact: true }).click();
-  await page.getByLabel("DevSpace 授权口令").waitFor();
+  await page.getByLabel("登录口令").waitFor();
   assert.equal(await page.locator(".task-title, .project-button, dialog").count(), 0);
   await page.unroute("**/console/api/projects");
-  await page.getByLabel("DevSpace 授权口令").fill("fixture-password-for-browser-qa-only");
+  await page.getByLabel("登录口令").fill("fixture-password-for-browser-qa-only");
   await page.getByRole("button", { name: "进入任务台", exact: true }).click();
   await page.getByLabel("搜索项目", { exact: true }).waitFor();
   assert.equal(await page.getByLabel("搜索项目", { exact: true }).inputValue(), "");
   await page.getByRole("button", { name: "退出登录", exact: true }).click();
-  await page.getByLabel("DevSpace 授权口令").waitFor();
+  await page.getByLabel("登录口令").waitFor();
   assert.deepEqual(errors, []);
   assert.deepEqual(foreignRequests, []);
   const result = { checkedAt: new Date().toISOString(), status: "passed", viewports: ["1440x1000", "390x844", "320x740", "768x1024", "1920x1080"],

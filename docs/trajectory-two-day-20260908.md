@@ -28,7 +28,7 @@
 | workspace_context | 228 | 20 |
 | apply_patch | 158 | 7 |
 | verification | 4 | 0 |
-| 不在固定 kind 白名单内的 unknown | 17 | 0 |
+| kind 不在白名单内，记为 unknown | 17 | 0 |
 
 共 976 completed、111 failed；这些仅是入选 ledger operations，未落 ledger 的 discovery/observe、host 本地拒绝及其他调用覆盖未知。历史失败集中于 command，但不存在足以把 73 个失败逐一归因为 shell、provider 或模型的允许证据。不得把通用 failed 自动分类为额度耗尽、模型错误或用户任务失败。
 
@@ -58,13 +58,13 @@ open_workspace 初始及复用响应、exec/write 响应共享 execution helper/
 
 真实 SDK Client 经 loopback StreamableHTTP 连接候选 MCP registration：tools/list → 初次/复用 open → fixture begin → tty 命令 → 终态 → 两次 EMPTY replay → exit 7 负例 → 错 workspace session/run 拒绝 → 旧 schema get → finish accepted receipt。验证恰好两个 command operations、零 console_executions，重放前后 revision 不变、claims 已释放。旧 schema 模拟实际拒绝 createDirectory 和 snapshot 参数，而非仅修改展示变量。fixture 关闭 client/server/HTTP、进程管理器及 DB 后移除自己的临时目录。
 
-首次 smoke 失败属于夹具：单例 stateless HTTP transport 被复用，初始化通知 HTTP 500；随后 Node Windows 退出时还报告 libuv closing assertion，该次尚未启动测试命令。改为有 session ID 的 transport 后，第二次失败是预期对象未同步文本中的 terminalReplay 标记；修正断言后通过。没有为测试放宽产品约束。首次文件定位还遇到 test/ 与实际 src/ 路径差异及 Windows rg 通配参数错误，已修正。这些初始工具输出未保存成机器测试收据，本段为当时输出的如实记录；不能冒充首次失败也有完整结构化归档。
+首次 smoke 失败属于夹具：单例 stateless HTTP transport 被复用，初始化通知 HTTP 500；随后 Node Windows 退出时还报告 libuv closing assertion，该次尚未启动测试命令。改为有 session ID 的 transport 后，第二次失败是预期对象未同步文本中的 terminalReplay 标记；修正断言后通过。没有为测试放宽产品约束。首次文件定位还遇到 test/ 与实际 src/ 路径差异及 Windows rg 通配参数错误，已修正。这些初始工具输出未保存为机器测试收据，本段仅保留当时的文字记录，首次失败没有完整的结构化归档。
 
 候选烟测只覆盖隔离 SDK StreamableHTTP 与真实工具 registration，不是生产 OAuth/modern HTTP 路由、真实 ChatGPT、Desktop registration 或 npm/npx 安装验收。生产服务器、客户端 schema 缓存、非 Windows 环境、Windows inherited-stdio 实例均未验证。所有本轮测试命令已结束，未留下新服务，也未操作既有服务进程。
 
 **回执与复现入口**
 
-以下路径均相对仓库；完整逐文件 candidate/source manifest 在 candidate-verification.json。Git blob 哈希与工作树换行字节并不总相同；未在编辑前保存所有原始工作树字节哈希，因此不声称逐项匹配主控给出的全部输入哈希。已记录精确 baseline Git blob 哈希和被测源码指纹，可用于重现本轮实际版本。
+以下路径均相对仓库；完整逐文件 candidate/source manifest 在 candidate-verification.json。Git blob 哈希与工作树换行字节并不总相同；编辑前未保存全部原始工作树的字节哈希，因此无法逐项核对主控提供的全部输入哈希。已记录精确 baseline Git blob 哈希和被测源码指纹，可用于重现本轮实际版本。
 
 | 回执 | SHA-256 |
 | --- | --- |

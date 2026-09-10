@@ -29,7 +29,7 @@
 
 finish 的判定集中在 ledger 原有 immediate 收尾事务内。仍检查本 run 的活跃 operations/executions；对重叠 checkout 的 claims 和未过期 waiters，只在 `latestExecution(agentId)` 活跃、所属另一 run 活跃、project 与 claim checkout 身份一致时排除 foreign agent。活跃 claim 的获取时间还必须不早于 execution 创建时间。命令、未知/孤儿、同 run、身份不符继续 fail closed。
 
-`endExecution` 与 `release` 之间的短窗口仍拒绝收尾：completed 旧记录不能证明当前 claim 的 foreign 归属。原有收尾事务与源码读写排他保留；不删除、不偷取或转移 claim。阻挡响应保留 `WORK_STATE`，增加固定枚举 `blocking` 和有界的 `nextAction`，引导观察子任务、等待终态、请持有者核对释放后重试，不返回跨 workspace 路径、agent 身份、资源名或私人 prompt。finish 无 provider 调用路径。
+`endExecution` 与 `release` 之间的短窗口仍拒绝收尾：completed 旧记录不能证明当前 claim 的 foreign 归属。原有收尾事务与源码读写排他保留；不会删除、抢占或转移 claim。阻挡响应保留 `WORK_STATE`，增加固定枚举 `blocking` 和有界的 `nextAction`，引导观察子任务、等待终态、请持有者核对释放后重试，不返回跨 workspace 路径、agent 身份、资源名或私人 prompt。finish 无 provider 调用路径。
 
 进度只识别命令开头的已知可执行文件及其直接参数位置。常见 go test、npm test、pytest、gradle assemble、tsc 等保留分类；普通命令里的路径或 echo 文本不参与判断。未知命令、复杂 shell 包装/复合语法或不认识的选项退回 `command`。输出仍只有原有固定枚举，不保存原始 command/args，也没有增加字符串解析框架。
 
@@ -61,7 +61,7 @@ typecheck 和隔离 TypeScript 编译通过，产物位于 `D:\CodexTemp\devspac
 
 **2026-09-08 10:28:41（UTC+8）新运行产物已启用**：精确核对原监听 PID5584的可执行文件、启动时间和 `D:\project\devspace\dist\cli.js serve` 入口后，仅替换空闲监听；新 PID为21492，端口仍为127.0.0.1:7676。原dist和一致SQLite备份保存在 `releases/activation-trajectory-20260908-022818/`，全部安装文件与独立候选哈希一致，healthz通过，没有回滚。没有更改隧道、根目录权限、OAuth配置或业务数据。回执为该目录的 `receipt.json`。
 
-启用后主控通过本对话原生 MCP 成功读取维护回执、取回同一已完成agent的终态结果；使用实际安装的dist再次运行编译后MCP smoke通过，未发起新模型执行。修改的四个运行模块与已测试staging逐文件哈希一致。具体foreign-claim与命令分类行为以同生产handler/ledger的67项fixture为证，不把普通health请求冒称所有真实并发场景已跑过。
+启用后主控通过本对话原生 MCP 成功读取维护回执、取回同一已完成agent的终态结果；使用实际安装的dist再次运行编译后MCP smoke通过，未发起新模型执行。修改的四个运行模块与已测试staging逐文件哈希一致。具体foreign-claim与命令分类行为以同生产handler/ledger的67项fixture为证，普通 health 请求只验证服务状态，不覆盖这些并发场景。
 
 ## 仍需区别对待的宿主契约问题
 
